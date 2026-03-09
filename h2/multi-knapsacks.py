@@ -1,35 +1,28 @@
 from ortools.sat.python import cp_model
 
 
-def get_weights():
-    return [48, 30, 42, 36, 36, 48, 42, 42, 36, 24, 30, 30, 42, 36, 36]
+def get_data(filename: str):
+    with open(filename) as f:
+        knapsack_capacities = list(map(int, f.readline().strip().split(" ")))
+        weights = list(map(int, f.readline().strip().split(" ")))
+        values = list(map(int, f.readline().strip().split(" ")))
 
-
-def get_values():
-    return [10, 30, 25, 50, 35, 30, 15, 40, 30, 35, 45, 10, 20, 30, 25]
-
-
-def get_knapsack_capacities():
-    return [100, 100, 100, 100, 100]
-
-
-def main() -> None:
-    knapsack_capacities = get_knapsack_capacities()
-    weights = get_weights()
-    values = get_values()
     assert len(weights) == len(values)
+    return knapsack_capacities, weights, values
+
+
+def main():
+    knapsack_capacities, weights, values = get_data("./multi-knapsacks-data/03.txt")
 
     model = cp_model.CpModel()
 
-    # Variables.
     # x[i, k] = 1 if item i is packed in knapsack k.
     x = {}
     for i in range(len(weights)):
         for k in range(len(knapsack_capacities)):
             x[i, k] = model.new_bool_var(f"x_{i}_{k}")
 
-    # Constraints.
-    # Each item is assigned to at most one knapsack.
+    # Each item i is assigned to at most one knapsack.
     for i in range(len(weights)):
         model.add_at_most_one(x[i, k] for k in range(len(knapsack_capacities)))
 
@@ -40,7 +33,6 @@ def main() -> None:
             <= knapsack_capacities[k]
         )
 
-    # Objective.
     # maximize total value of packed items.
     objective = []
     for i in range(len(weights)):
@@ -51,8 +43,8 @@ def main() -> None:
     solver = cp_model.CpSolver()
     status = solver.solve(model)
 
-    if status == cp_model.OPTIMAL:
-        print(f"Total packed value: {solver.objective_value}")
+    # print the solution
+    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
         total_weight = 0
         for k in range(len(knapsack_capacities)):
             print(f"knapsack {k}")
@@ -66,7 +58,9 @@ def main() -> None:
             print(f"Packed knapsack weight: {knapsack_weight:3}")
             print(f"Packed knapsack value:  {knapsack_value:3}\n")
             total_weight += knapsack_weight
+        print(f"Solution: {status.__str__().split('.')[1]}")
         print(f"Total packed weight: {total_weight}")
+        print(f"Total packed value:  {round(solver.objective_value)}")
     else:
         print("The problem does not have an optimal solution.")
 
