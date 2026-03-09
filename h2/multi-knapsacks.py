@@ -1,5 +1,7 @@
 from ortools.sat.python import cp_model
 
+ITEM_REPEATED_MAX = 3
+
 
 def get_data(filename: str):
     with open(filename) as f:
@@ -12,19 +14,21 @@ def get_data(filename: str):
 
 
 def main():
-    knapsack_capacities, weights, values = get_data("./multi-knapsacks-data/03.txt")
+    knapsack_capacities, weights, values = get_data("./multi-knapsacks-data/07.txt")
 
     model = cp_model.CpModel()
 
-    # x[i, k] = 1 if item i is packed in knapsack k.
+    # x[i, k] how many items i are packed in knapsack k.
     x = {}
     for i in range(len(weights)):
         for k in range(len(knapsack_capacities)):
-            x[i, k] = model.new_bool_var(f"x_{i}_{k}")
+            x[i, k] = model.new_int_var(0, ITEM_REPEATED_MAX, f"x_{i}_{k}")
 
-    # Each item i is assigned to at most one knapsack.
+    # Each item i is used at most ITEM_REPEATED_MAX times
     for i in range(len(weights)):
-        model.add_at_most_one(x[i, k] for k in range(len(knapsack_capacities)))
+        model.add(
+            sum(x[i, k] for k in range(len(knapsack_capacities))) <= ITEM_REPEATED_MAX
+        )
 
     # The amount packed in each knapsack cannot exceed its capacity.
     for k in range(len(knapsack_capacities)):
@@ -51,10 +55,13 @@ def main():
             knapsack_weight = 0
             knapsack_value = 0
             for i in range(len(weights)):
-                if solver.value(x[i, k]) > 0:
-                    print(f"Item:{i:2}   weight:{weights[i]:3}   value:{values[i]:3}")
-                    knapsack_weight += weights[i]
-                    knapsack_value += values[i]
+                count = solver.value(x[i, k])
+                if count > 0:
+                    print(
+                        f"{count:1}x Item_{i:02}   weight:{weights[i]:3}   value:{values[i]:3}"
+                    )
+                    knapsack_weight += count * weights[i]
+                    knapsack_value += count * values[i]
             print(f"Packed knapsack weight: {knapsack_weight:3}")
             print(f"Packed knapsack value:  {knapsack_value:3}\n")
             total_weight += knapsack_weight
