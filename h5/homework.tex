@@ -1,0 +1,416 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\begin{document}
+
+\section*{Exercise 1: Dynamic Table (INSERT and DELETE)}
+
+We analyze a dynamic table $T$ that supports both \texttt{INSERT} and \texttt{DELETE} operations. To maintain $O(1)$ amortized cost, we use the standard strategy:
+\begin{itemize}
+    \item \textbf{Expansion:} Double the table size when inserting into a full table (load factor $\alpha = 1$).
+    \item \textbf{Contraction:} Halve the table size when the table becomes less than 1/4 full ($\alpha = 1/4$).
+\end{itemize}
+We will prove the amortized cost per operation is $O(1)$ using all three methods.
+
+\subsection*{1. Aggregate Analysis}
+In aggregate analysis, we compute the total cost of a sequence of $n$ operations and divide by $n$.
+\begin{itemize}
+    \item The basic \texttt{INSERT} or \texttt{DELETE} without resizing costs $1$. For $n$ operations, this contributes at most $n$ to the total cost.
+    \item \textbf{Cost of Expansions:} The table doubles at sizes $1, 2, 4, 8, \dots, 2^k$. The total cost of copying elements during expansions over $n$ operations is bounded by the geometric series: $\sum_{i=0}^{\lfloor \log n \rfloor} 2^i \le 2n$.
+    \item \textbf{Cost of Contractions:} The table halves only when $\alpha$ drops below $1/4$. The cost of copying elements during contractions is similarly bounded by $O(n)$ because we must perform at least $\Theta(size(T))$ cheap deletes to trigger a contraction.
+\end{itemize}
+uTotal actual cost for $n$ operations: $\le n + 2n + n = 3n= O(n)$. \\
+The amortized cost per operation is $\frac{O(n)}{n} = \mathbf{O(1)}$.
+
+\subsection*{2. Accounting Method}
+
+Assign the following amortized charges:
+
+\[
+\hat{c}_{\text{INSERT}} = 3
+\qquad\text{and}\qquad
+\hat{c}_{\text{DELETE}} = 2
+\]
+
+We show that these charges are sufficient to pay for every actual cost.
+
+\subsubsection*{INSERT}
+
+For each INSERT:
+
+\begin{itemize}
+    \item 1 unit pays for the immediate insertion,
+    \item 2 units are stored as credit with the inserted element.
+\end{itemize}
+
+Suppose an expansion occurs when the table has capacity $k$ and currently contains $k$ elements.
+
+Doubling the table requires copying all $k$ existing elements, so the actual resizing cost is:
+
+\[
+k
+\]
+
+Observe that before expansion, the right half of the table contains:
+
+\[
+\frac{k}{2}
+\]
+
+elements, and by invariant each of them stores 2 credits. Thus the total saved credit is:
+
+\[
+2 \cdot \frac{k}{2} = k
+\]
+
+which is exactly enough to pay for copying all $k$ elements into the new table.
+
+Therefore, every expansion is fully paid for using previously stored credits.
+
+\subsubsection*{DELETE}
+
+For each DELETE:
+
+\begin{itemize}
+    \item 1 unit pays for the immediate deletion,
+    \item 1 unit is stored as credit in the newly empty slot.
+\end{itemize}
+
+Suppose a contraction occurs when the table has capacity $k$ and the number of elements becomes:
+
+\[
+\frac{k}{4}
+\]
+
+Then the table shrinks to capacity:
+
+\[
+\frac{k}{2}
+\]
+
+The contraction requires copying:
+
+\[
+\frac{k}{4}
+\]
+
+elements into the smaller table, so the resizing cost is:
+
+\[
+\frac{k}{4}
+\]
+
+Before shrinking, the left half of the table contains:
+
+\[
+\frac{k}{2}
+\]
+
+slots. Since only $\frac{k}{4}$ of the entire table are occupied, at least:
+
+\[
+\frac{k}{4}
+\]
+
+slots in the left half are empty.
+
+Each empty slot stores 1 credit, so the total available credit is:
+
+\[
+\frac{k}{4}
+\]
+
+which is exactly enough to pay for moving the remaining elements during contraction.
+
+Thus every contraction is also fully paid for by saved credits.
+
+\subsubsection*{Total Cost}
+
+Since every INSERT is charged 3 and every DELETE is charged 2, for any sequence of $n$ operations the total amortized cost is at most:
+
+\[
+3(\#\text{INSERT}) + 2(\#\text{DELETE})
+\]
+
+Since:
+
+\[
+\#\text{INSERT} + \#\text{DELETE} = n
+\]
+
+we obtain:
+
+\[
+3(\#\text{INSERT}) + 2(\#\text{DELETE}) \leq 3n
+\]
+
+Hence the total cost of $n$ operations is:
+
+\[
+O(n)
+\]
+
+and therefore the amortized cost per operation is:
+
+\[
+O(1)
+\]
+
+
+\subsection*{3. Potential Method}
+
+Let:
+
+\begin{itemize}
+    \item $m$ = number of elements in the table,
+    \item $T$ = table size (capacity).
+\end{itemize}
+
+Define the potential function:
+
+\[
+\Phi(T,m) =
+\begin{cases}
+2m - T & \text{if } m \geq \frac{T}{2} \\[6pt]
+\frac{T}{2} - m & \text{if } m < \frac{T}{2}
+\end{cases}
+\]
+
+The amortized cost is:
+
+\[
+\hat{c}_i = c_i + \Phi_i - \Phi_{i-1}
+\]
+
+For a normal INSERT without resizing:
+
+\[
+c_i = 1
+\]
+
+The change in potential is at most constant, so:
+
+\[
+\hat{c}_i = O(1)
+\]
+
+For an INSERT that triggers doubling:
+
+\[
+c_i = m + 1
+\]
+
+But the potential drops enough to pay for the copying cost, giving:
+
+\[
+\hat{c}_i = O(1)
+\]
+
+Similarly, for DELETE operations:
+
+\begin{itemize}
+    \item Normal DELETE has constant amortized cost.
+    \item DELETE causing contraction also has constant amortized cost because the decrease in potential pays for copying.
+\end{itemize}
+
+Therefore:
+
+\[
+\hat{c}_i = O(1)
+\]
+
+for every operation, and for $n$ operations:
+
+\[
+\sum_{i=1}^{n} \hat{c}_i = O(n)
+\]
+
+\subsection*{Final Result}
+
+Using aggregate, accounting, and potential methods:
+
+\[
+\boxed{\text{Total cost of } n \text{ INSERT and DELETE operations is } O(n)}
+\]
+
+Hence, the amortized cost per operation is:
+
+\[
+\boxed{O(1)}
+\]
+
+\section{Exercise 2}
+
+\subsection*{a. SEARCH Operation}
+
+There are at most
+
+\[
+k = \lceil \log(n+1) \rceil
+\]
+
+arrays, and array \(A_i\) has size \(2^i\).
+
+To search for an element \(x\):
+
+\begin{enumerate}
+    \item For every nonempty array \(A_i\),
+    perform binary search on \(A_i\).
+    \item If \(x\) is found in any array, return TRUE.
+    \item Otherwise, return FALSE.
+\end{enumerate}
+
+Since binary search on \(A_i\) takes
+
+\[
+O(\log 2^i) = O(i),
+\]
+
+the total worst-case running time is
+
+\[
+\sum_{i=0}^{k-1} O(i)
+=
+O\left(\sum_{i=0}^{k-1} i\right)
+=
+O(k^2).
+\]
+
+Since
+
+\[
+k = \Theta(\log n),
+\]
+
+we obtain
+
+\[
+O(k^2) = O((\log n)^2).
+\]
+
+Thus the worst case for SEARCH operation runs in
+
+\[
+\boxed{O((\log n)^2)}
+\]
+
+\subsection*{b. INSERT Operation}
+
+To insert a new element \(x\):
+
+\begin{enumerate}
+    \item Create a new \textit{carry} array containing only \(x\).
+    \item If \(A_0\) is empty, place the \textit{carry} there.
+    \item Otherwise, merge the \textit{carry} with \(A_0\), producing a sorted array of size \(2\).
+    \item If \(A_1\) is empty, place the merged array there.
+    \item Otherwise, merge again and continue upward, exactly like carrying in binary addition.
+\end{enumerate}
+
+If arrays \(A_0, A_1, \dots, A_{t-1}\) are full and \(A_t\) is empty, then we perform merges of sizes
+
+\[
+1,2,4,\dots,2^{t-1}.
+\]
+
+The total cost is
+
+\[
+1 + 2 + 4 + \cdots + 2^{t-1}
+=
+2^t - 1.
+\]
+
+In the worst case, all arrays are full, so
+
+\[
+2^k - 1 = 2^{\log(n+1)} - 1 \approx 2^{\log n} = n^{\log2} = n
+\]
+
+and inserting one new element requires merging all elements.
+
+Thus the worst-case running time is
+
+\[
+\boxed{O(n)}.
+\]
+
+\subsubsection*{Amortized Analysis: Aggregate Method}
+
+Consider a sequence of \(n\) INSERT operations.
+
+An array of size \(2^i\) is created only after every \(2^i\) insertions.
+Whenever such an array is created, the merge cost is \(O(2^i)\).
+
+Thus the total contribution of level \(i\) over \(n\) insertions is
+
+\[
+O\left(\frac{n}{2^i} \cdot 2^i\right)
+=
+O(n).
+\]
+
+There are at most $\lceil \log(n+1) \rceil$ levels, so the total cost of all insertions is
+
+\[
+O(n \log n).
+\]
+
+Therefore, the amortized cost per INSERT is
+
+\[
+\frac{O(n \log n)}{n}
+=
+O(\log n).
+\]
+
+Hence,
+
+\[
+\boxed{\text{Amortized INSERT cost } = O(\log n)}.
+\]
+
+\subsubsection*{Amortized Analysis: Accounting Method}
+
+Charge each INSERT operation
+
+\[
+c = d \log n
+\]
+
+credits for a sufficiently large constant \(d\).
+
+Whenever an element participates in a merge, it moves from an array of size \(2^i\) to an array of size \(2^{i+1}\).
+
+Since the largest array has size at most \(n\), any element can move at most
+
+\[
+\log n
+\]
+
+times.
+
+Each movement costs \(O(1)\) per element.
+
+Thus each inserted element incurs a total future movement cost of at most
+
+\[
+O(\log n).
+\]
+
+Therefore charging \(O(\log n)\) credits per insertion is enough to pay for:
+
+\begin{itemize}
+    \item the initial insertion cost,
+    \item all future merge costs involving that element.
+\end{itemize}
+
+Hence the amortized INSERT cost is
+
+\[
+\boxed{O(\log n)}.
+\]
+
+\end{document}
