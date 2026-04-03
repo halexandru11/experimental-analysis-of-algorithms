@@ -202,19 +202,17 @@ class MemeticGA:
         """
         FAST local search: Hill climbing with minimal iterations.
         
-        Optimized for speed - only try small number of moves per gene.
+        Optimized for speed - randomly samples genes to improve (fair coverage).
         
         Args:
             individual: Individual to improve (modified in-place)
             num_iterations: Max iterations (reduced for speed)
         """
-        # Limit search moves to speed up: only try each gene once
-        attempts = 0
+        # Randomly sample which genes to search for fairness across all pipes
         max_attempts = min(self.num_pipes, 20)  # Cap at 20 genes for speed
+        pipe_indices = random.sample(range(self.num_pipes), max_attempts)
         
-        for pipe_idx in range(max_attempts):
-            attempts += 1
-            
+        for pipe_idx in pipe_indices:
             current_fitness = individual.fitness
             
             # Try larger diameter (usually improves feasibility)

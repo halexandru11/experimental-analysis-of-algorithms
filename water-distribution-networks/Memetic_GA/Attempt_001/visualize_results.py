@@ -48,7 +48,7 @@ class ResultsVisualizer:
         if n_benchmarks == 1:
             axes = [axes]
         
-        colors_meme = ['#2E86AB', '#A23B72', '#F18F01']  # Blue family
+        colors_meme = ['#2E86AB', '#A23B72', '#1B9E77']  # Blue/Purple/Teal family
         colors_std = ['#C73E1D', '#EE6C4D', '#F4A261']   # Red/Orange family
         
         for ax_idx, benchmark in enumerate(benchmarks):
@@ -113,9 +113,11 @@ class ResultsVisualizer:
             ax.set_ylabel('Fitness (Cost, $)')
             ax.set_title(f'{difficulty}: {network_file}\n'
                         f"({benchmark['network_stats']['num_pipes']} pipes)")
+            # Large penalty spikes can hide normal costs on linear scale.
+            # Log scale keeps both early spikes and converged values visible.
+            ax.set_yscale('log')
             ax.legend(fontsize=9, loc='best')
             ax.grid(True, alpha=0.3)
-            ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
         
         plt.tight_layout()
         output_path = os.path.join(self.output_dir, '01_convergence_curves.png')
