@@ -1,26 +1,42 @@
-# Benchmark Protocol - Attempt 003
+# Benchmark Protocol (Strict Comparison Track)
 
-Attempt 003 uses a strict score-first comparison strategy.
+## Purpose
+This attempt uses a strict apples-to-apples benchmark track for final-score comparison against published references.
 
-## Included benchmarks
+## Selected Strict Benchmarks
+- `TLN.inp` (Two-Loop Network)
+- `hanoi.inp` (Hanoi Network)
+- `BIN.inp` (Balerma Network)
 
-- `TLN.inp`
-- `hanoi.inp`
-- `BIN.inp`
+These three are used because their benchmark formulations are sufficiently documented in literature and commonly replicated.
 
-## Comparison rule
+## Comparison Rules
+A comparison is considered strict only when all of the following match the benchmark definition:
+- Same network instance and hydraulic data
+- Same decision variable model (single diameter choice per pipe)
+- Same discrete diameter catalog
+- Same cost model/table and units
+- Same hydraulic constraint thresholds
+- Same hydraulic model assumptions
 
-A solution is considered comparable only if it uses the published diameter catalog, published unit costs, and the benchmark pressure threshold for that network.
+If any of these differ, the result must be labeled exploratory/non-strict.
 
-## Search rule
+## Current Implementation Notes
+- Optimization still uses an internal fast fitness for search.
+- A separate external final comparison metric is logged for reporting.
+- Plots include optional published-reference overlays from:
+  - `results/published_reference_scores.json`
 
-The optimizer is not allowed to accept a move that makes the solution infeasible under the benchmark hydraulic model.
+## Published Reference Values Used (Current)
+- `TLN.inp`: 419000
+- `hanoi.inp`: 6081000
+- `BIN.inp`: 2306612.15
 
-## Reporting rule
+These values are treated as project references and should be re-verified in final report text with exact citations and assumptions.
 
-The final report must show both:
+## Report Framing Recommendation
+Use two layers in write-up:
+1. **Strict benchmark results**: TLN, Hanoi, Balerma (publishable comparison claims)
+2. **Exploratory results**: any additional networks not fully matched to literature
 
-1. the Attempt 003 score
-2. the published best score
-
-Any difference should be reported as a gap percentage.
+This keeps claims rigorous while still showing broader experimentation.
