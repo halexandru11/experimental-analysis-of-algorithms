@@ -22,7 +22,7 @@ In aggregate analysis, we compute the total cost of a sequence of $n$ operations
     \item \textbf{Cost of Expansions:} The table doubles at sizes $1, 2, 4, 8, \dots, 2^k$. The total cost of copying elements during expansions over $n$ operations is bounded by the geometric series: $\sum_{i=0}^{\lfloor \log n \rfloor} 2^i \le 2n$.
     \item \textbf{Cost of Contractions:} The table halves only when $\alpha$ drops below $1/4$. The cost of copying elements during contractions is similarly bounded by $O(n)$ because we must perform at least $\Theta(size(T))$ cheap deletes to trigger a contraction.
 \end{itemize}
-uTotal actual cost for $n$ operations: $\le n + 2n + n = 3n= O(n)$. \\
+Total actual cost for $n$ operations: $\le n + 2n = 3n= O(n)$. \\
 The amortized cost per operation is $\frac{O(n)}{n} = \mathbf{O(1)}$.
 
 \subsection*{2. Accounting Method}
