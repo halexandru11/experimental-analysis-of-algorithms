@@ -193,6 +193,30 @@ class BenchmarkRunner:
                 except OSError:
                     pass
 
+    def _paper_guided_fitness_fn(
+        self,
+        network_file: str,
+        inp_filepath: str,
+        network: WaterNetwork
+    ):
+        """Return a paper-aligned fitness function for GA optimization."""
+
+        def objective(diameters: List[float]) -> float:
+            paper_eval = self._evaluate_paper_score(network_file, inp_filepath, network, diameters)
+
+            if paper_eval.get('paper_eval_ok', 0.0) > 0.5 and paper_eval.get('paper_feasible', 0.0) > 0.5:
+                return float(paper_eval['paper_score'])
+
+            paper_cost = float(paper_eval.get('paper_cost', float('inf')))
+            paper_violation = float(paper_eval.get('paper_violation', float('inf')))
+
+            if not np.isfinite(paper_cost) or not np.isfinite(paper_violation):
+                return float('inf')
+
+            return paper_cost + (1e5 * paper_violation)
+
+        return objective
+
     def _repair_to_paper_feasible(
         self,
         network_file: str,
@@ -319,11 +343,12 @@ class BenchmarkRunner:
                 })
                 break
 
-        current_eval.update({
-            'repaired': 1.0,
-            'repair_steps': float(max_steps),
-            'repair_note': 'repair_budget_exhausted_infeasible'
-        })
+        if current_eval.get('paper_feasible', 0.0) <= 0.5:
+            current_eval.update({
+                'repaired': 1.0,
+                'repair_steps': float(max_steps),
+                'repair_note': 'repair_budget_exhausted_infeasible'
+            })
 
         # Safety fallback: run legacy global headloss-sensitivity repair and pick cheaper feasible result.
         fallback_eval = self._repair_to_paper_feasible_global(
@@ -425,6 +450,7 @@ class BenchmarkRunner:
         """
         start_time = time.time()
         diameter_options, unit_cost_lookup = self._get_benchmark_cost_spec(network_file)
+        fitness_score_fn = self._paper_guided_fitness_fn(network_file, os.path.join(self.data_dir, network_file), network)
         
         ga = MemeticGA(
             network,
@@ -435,6 +461,7 @@ class BenchmarkRunner:
             local_search_intensity=local_search_intensity,
             diameter_options=diameter_options,
             unit_cost_lookup=unit_cost_lookup if unit_cost_lookup else None,
+            fitness_score_fn=fitness_score_fn,
             benchmark_eval_interval=5,
             seed=seed
         )
@@ -461,6 +488,7 @@ class BenchmarkRunner:
         """
         start_time = time.time()
         diameter_options, unit_cost_lookup = self._get_benchmark_cost_spec(network_file)
+        fitness_score_fn = self._paper_guided_fitness_fn(network_file, os.path.join(self.data_dir, network_file), network)
         
         ga = MemeticGA(
             network,
@@ -471,6 +499,7 @@ class BenchmarkRunner:
             local_search_intensity=0.0,  # Disable local search
             diameter_options=diameter_options,
             unit_cost_lookup=unit_cost_lookup if unit_cost_lookup else None,
+            fitness_score_fn=fitness_score_fn,
             benchmark_eval_interval=5,
             seed=seed
         )

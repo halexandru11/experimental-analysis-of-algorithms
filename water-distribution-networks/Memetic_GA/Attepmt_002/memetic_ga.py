@@ -38,19 +38,27 @@ from network_parser import WaterNetwork
 
 
 BenchmarkScoreFn = Callable[[List[float]], Dict[str, float]]
+FitnessScoreFn = Callable[[List[float]], float]
 
 
 class Individual:
     """Represents an individual solution (pipe diameter configuration)."""
     
-    def __init__(self, chromosome: List[int], fitness_evaluator: FitnessEvaluator):
+    def __init__(
+        self,
+        chromosome: List[int],
+        fitness_evaluator: FitnessEvaluator,
+        fitness_score_fn: Optional[FitnessScoreFn] = None
+    ):
         """
         Args:
             chromosome: List of diameter indices for each pipe
             fitness_evaluator: FitnessEvaluator instance
+            fitness_score_fn: Optional external objective function
         """
         self.chromosome = chromosome.copy()
         self.evaluator = fitness_evaluator
+        self.fitness_score_fn = fitness_score_fn
         self._fitness = None
     
     @property
@@ -58,7 +66,10 @@ class Individual:
         """Lazy evaluation of fitness."""
         if self._fitness is None:
             diameters = self.evaluator.indices_to_diameters(self.chromosome)
-            self._fitness = self.evaluator.evaluate(diameters)
+            if self.fitness_score_fn is None:
+                self._fitness = self.evaluator.evaluate(diameters)
+            else:
+                self._fitness = float(self.fitness_score_fn(diameters))
         return self._fitness
     
     def invalidate_fitness(self):
@@ -67,7 +78,7 @@ class Individual:
     
     def copy(self) -> 'Individual':
         """Return a deep copy of this individual."""
-        return Individual(self.chromosome, self.evaluator)
+        return Individual(self.chromosome, self.evaluator, self.fitness_score_fn)
 
 
 class MemeticGA:
@@ -90,6 +101,7 @@ class MemeticGA:
         local_search_intensity: float = 1.0,
         diameter_options: Optional[List[float]] = None,
         unit_cost_lookup: Optional[Dict[float, float]] = None,
+        fitness_score_fn: Optional[FitnessScoreFn] = None,
         benchmark_score_fn: Optional[BenchmarkScoreFn] = None,
         benchmark_eval_interval: int = 5,
         seed: int = None
@@ -106,6 +118,7 @@ class MemeticGA:
             local_search_intensity: Intensity of local search (0.0 to 1.0)
             diameter_options: Optional diameter catalog for this benchmark
             unit_cost_lookup: Optional benchmark unit-cost table
+            fitness_score_fn: Optional external objective for optimization
             benchmark_score_fn: Optional external benchmark metric function
             benchmark_eval_interval: Periodicity for benchmark metric tracking
             seed: Random seed for reproducibility
@@ -123,6 +136,7 @@ class MemeticGA:
         self.local_search_intensity = local_search_intensity
         self.num_pipes = network.get_pipe_count()
         self.num_diameter_options = self.fitness_evaluator.diameter_options
+        self.fitness_score_fn = fitness_score_fn
         self.benchmark_score_fn = benchmark_score_fn
         self.benchmark_eval_interval = max(1, benchmark_eval_interval)
         
@@ -170,7 +184,7 @@ class MemeticGA:
                 random.randint(0, self.num_diameter_options - 1)
                 for _ in range(self.num_pipes)
             ]
-            individual = Individual(chromosome, self.fitness_evaluator)
+            individual = Individual(chromosome, self.fitness_evaluator, self.fitness_score_fn)
             self.population.append(individual)
     
     def _tournament_selection(self, tournament_size: int = 3) -> Individual:
@@ -208,8 +222,8 @@ class MemeticGA:
                 child2_chr.append(parent1.chromosome[i])
         
         return (
-            Individual(child1_chr, self.fitness_evaluator),
-            Individual(child2_chr, self.fitness_evaluator)
+            Individual(child1_chr, self.fitness_evaluator, self.fitness_score_fn),
+            Individual(child2_chr, self.fitness_evaluator, self.fitness_score_fn)
         )
     
     def _gaussian_mutation(self, individual: Individual, mutation_rate: float = None):
