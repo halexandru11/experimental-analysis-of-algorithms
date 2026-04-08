@@ -30,11 +30,14 @@ Design Rationale:
 """
 
 import numpy as np
-from typing import List, Tuple, Dict
+from typing import Callable, Dict, List, Optional, Tuple
 import random
 from copy import deepcopy
 from fitness_evaluator import FitnessEvaluator, AVAILABLE_DIAMETERS
 from network_parser import WaterNetwork
+
+
+BenchmarkScoreFn = Callable[[List[float]], Dict[str, float]]
 
 
 class Individual:
@@ -85,6 +88,10 @@ class MemeticGA:
         crossover_rate: float = 0.8,
         mutation_rate: float = 0.1,
         local_search_intensity: float = 1.0,
+        diameter_options: Optional[List[float]] = None,
+        unit_cost_lookup: Optional[Dict[float, float]] = None,
+        benchmark_score_fn: Optional[BenchmarkScoreFn] = None,
+        benchmark_eval_interval: int = 5,
         seed: int = None
     ):
         """
@@ -97,17 +104,27 @@ class MemeticGA:
             crossover_rate: Probability of crossover
             mutation_rate: Initial mutation rate (adaptive)
             local_search_intensity: Intensity of local search (0.0 to 1.0)
+            diameter_options: Optional diameter catalog for this benchmark
+            unit_cost_lookup: Optional benchmark unit-cost table
+            benchmark_score_fn: Optional external benchmark metric function
+            benchmark_eval_interval: Periodicity for benchmark metric tracking
             seed: Random seed for reproducibility
         """
         self.network = network
-        self.fitness_evaluator = FitnessEvaluator(network)
+        self.fitness_evaluator = FitnessEvaluator(
+            network,
+            diameter_options=diameter_options,
+            unit_cost_lookup=unit_cost_lookup
+        )
         self.population_size = population_size
         self.max_generations = max_generations
         self.crossover_rate = crossover_rate
         self.mutation_rate = mutation_rate
         self.local_search_intensity = local_search_intensity
         self.num_pipes = network.get_pipe_count()
-        self.num_diameter_options = len(AVAILABLE_DIAMETERS)
+        self.num_diameter_options = self.fitness_evaluator.diameter_options
+        self.benchmark_score_fn = benchmark_score_fn
+        self.benchmark_eval_interval = max(1, benchmark_eval_interval)
         
         if seed is not None:
             random.seed(seed)
@@ -116,7 +133,33 @@ class MemeticGA:
         self.population: List[Individual] = []
         self.best_fitness_history: List[float] = []
         self.avg_fitness_history: List[float] = []
+        self.benchmark_best_history: List[float] = []
+        self.benchmark_avg_history: List[float] = []
+        self.benchmark_eval_generations: List[int] = []
+        self.benchmark_metric_name = 'universal_score'
         self.generation = 0
+
+    def _evaluate_benchmark_individual(self, individual: Individual) -> float:
+        """Evaluate external benchmark score for one individual."""
+        diameters = self.fitness_evaluator.indices_to_diameters(individual.chromosome)
+        if self.benchmark_score_fn is None:
+            benchmark = self.fitness_evaluator.evaluate_universal_score(diameters)
+        else:
+            benchmark = self.benchmark_score_fn(diameters)
+        return float(benchmark.get('score', float('inf')))
+
+    def _track_benchmark_scores(self, force: bool = False):
+        """Track periodic benchmark score history for comparison plots."""
+        if not self.population:
+            return
+
+        if not force and (self.generation % self.benchmark_eval_interval != 0):
+            return
+
+        benchmark_scores = [self._evaluate_benchmark_individual(ind) for ind in self.population]
+        self.benchmark_best_history.append(float(min(benchmark_scores)))
+        self.benchmark_avg_history.append(float(np.mean(benchmark_scores)))
+        self.benchmark_eval_generations.append(self.generation)
     
     def initialize_population(self):
         """Create initial random population."""
@@ -237,6 +280,7 @@ class MemeticGA:
         avg_fitness = np.mean(fitnesses)
         self.best_fitness_history.append(best_fitness)
         self.avg_fitness_history.append(avg_fitness)
+        self._track_benchmark_scores()
         
         # Create new population
         new_population = []
@@ -288,12 +332,13 @@ class MemeticGA:
         self.population = new_population[:self.population_size]
         self.generation += 1
     
-    def run(self) -> Tuple[Individual, List[float], List[float]]:
+    def run(self) -> Tuple[Individual, List[float], List[float], Dict[str, List[float]]]:
         """
         Run the Memetic GA algorithm.
         
         Returns:
-            Tuple of (best_individual, best_fitness_history, avg_fitness_history)
+            Tuple of (best_individual, best_fitness_history, avg_fitness_history,
+            benchmark_history)
         """
         print("Initializing population...")
         self.initialize_population()
@@ -328,8 +373,16 @@ class MemeticGA:
         # Get best individual
         best_idx = np.argmin([ind.fitness for ind in self.population])
         best_individual = self.population[best_idx]
+        self._track_benchmark_scores(force=True)
+
+        benchmark_history = {
+            'metric_name': self.benchmark_metric_name,
+            'generations': self.benchmark_eval_generations,
+            'best_history': self.benchmark_best_history,
+            'avg_history': self.benchmark_avg_history
+        }
         
         print(f"\nOptimization complete!")
         print(f"Best fitness: {best_individual.fitness:.2e}")
         
-        return best_individual, self.best_fitness_history, self.avg_fitness_history
+        return best_individual, self.best_fitness_history, self.avg_fitness_history, benchmark_history

@@ -33,10 +33,26 @@ class ResultsVisualizer:
         
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+
+        # Optional file with published reference scores for apples-to-apples comparison.
+        self.reference_scores = self._load_reference_scores()
         
         # Style
         plt.rcParams['figure.figsize'] = (14, 10)
         plt.rcParams['font.size'] = 10
+
+    def _load_reference_scores(self) -> Dict[str, Dict]:
+        """Load optional published reference scores keyed by network filename."""
+        reference_path = os.path.join(self.output_dir, 'published_reference_scores.json')
+        if not os.path.exists(reference_path):
+            return {}
+
+        with open(reference_path, 'r') as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            return {}
+        return data
     
     def plot_convergence_curves(self):
         """Plot convergence of both algorithms on each benchmark."""
@@ -60,14 +76,32 @@ class ResultsVisualizer:
             meme_run = benchmark['memetic_ga_runs'][0]
             std_run = benchmark['standard_ga_runs'][0]
             
-            meme_best = meme_run['best_fitness_history']
-            meme_avg = meme_run['avg_fitness_history']
-            std_best = std_run['best_fitness_history']
-            std_avg = std_run['avg_fitness_history']
-            
-            # Use actual history length (not all generations due to early stopping)
-            meme_gens = range(len(meme_best))
-            std_gens = range(len(std_best))
+            use_universal = (
+                'universal_best_history' in meme_run and
+                len(meme_run['universal_best_history']) > 0 and
+                'universal_best_history' in std_run and
+                len(std_run['universal_best_history']) > 0
+            )
+
+            if use_universal:
+                meme_best = meme_run['universal_best_history']
+                meme_avg = meme_run['universal_avg_history']
+                std_best = std_run['universal_best_history']
+                std_avg = std_run['universal_avg_history']
+                meme_gens = meme_run['universal_generations']
+                std_gens = std_run['universal_generations']
+                y_label = 'Universal Score (Cost + Penalty, $)'
+                plot_title = 'Universal Comparison Metric'
+            else:
+                meme_best = meme_run['best_fitness_history']
+                meme_avg = meme_run['avg_fitness_history']
+                std_best = std_run['best_fitness_history']
+                std_avg = std_run['avg_fitness_history']
+                # Use actual history length (not all generations due to early stopping)
+                meme_gens = range(len(meme_best))
+                std_gens = range(len(std_best))
+                y_label = 'Fitness (Cost, $)'
+                plot_title = 'Training Fitness'
             
             ax.plot(
                 meme_gens,
@@ -110,9 +144,9 @@ class ResultsVisualizer:
             )
             
             ax.set_xlabel('Generation')
-            ax.set_ylabel('Fitness (Cost, $)')
+            ax.set_ylabel(y_label)
             ax.set_title(f'{difficulty}: {network_file}\n'
-                        f"({benchmark['network_stats']['num_pipes']} pipes)")
+                        f"({benchmark['network_stats']['num_pipes']} pipes, {plot_title})")
             # Large penalty spikes can hide normal costs on linear scale.
             # Log scale keeps both early spikes and converged values visible.
             ax.set_yscale('log')
@@ -349,6 +383,162 @@ class ResultsVisualizer:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"✓ Saved: {output_path}")
         plt.close()
+
+    def plot_published_final_comparison(self):
+        """
+        Compare final universal score against published best (if provided).
+
+        Uses references from published_reference_scores.json where available.
+        """
+        benchmarks = self.results['benchmarks']
+
+        labels = []
+        meme_scores = []
+        std_scores = []
+        pub_scores = []
+
+        for benchmark in benchmarks:
+            network = benchmark['network']
+            if network not in self.reference_scores:
+                continue
+
+            ref = self.reference_scores[network]
+            published_best = ref.get('published_best_universal_score')
+            if published_best is None:
+                continue
+
+            labels.append(f"{benchmark['difficulty']}\n{network}")
+            meme_score = benchmark['summary']['memetic_ga'].get('mean_paper_score')
+            std_score = benchmark['summary']['standard_ga'].get('mean_paper_score')
+            if meme_score is None:
+                meme_score = benchmark['summary']['memetic_ga']['mean_universal_score']
+            if std_score is None:
+                std_score = benchmark['summary']['standard_ga']['mean_universal_score']
+
+            meme_scores.append(float(meme_score) if np.isfinite(meme_score) else np.nan)
+            std_scores.append(float(std_score) if np.isfinite(std_score) else np.nan)
+            pub_scores.append(float(published_best))
+
+        if not labels:
+            print("⚠ Skipping published comparison plot (no published reference scores found).")
+            return
+
+        x = np.arange(len(labels))
+        width = 0.25
+
+        fig, ax = plt.subplots(figsize=(14, 6))
+        bars_meme = ax.bar(x - width, meme_scores, width, label='Memetic GA (mean final score)', color='#2E86AB', alpha=0.85)
+        bars_std = ax.bar(x, std_scores, width, label='Standard GA (mean final score)', color='#C73E1D', alpha=0.85)
+        bars_pub = ax.bar(x + width, pub_scores, width, label='Published Best (universal)', color='#1B9E77', alpha=0.9)
+
+        ax.set_title('Final Score vs Published Best', fontsize=13, fontweight='bold')
+        ax.set_ylabel('Final Score (benchmark currency)')
+        ax.set_xlabel('Benchmark')
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.grid(True, axis='y', alpha=0.3)
+        ax.legend()
+        ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+
+        for i in range(len(labels)):
+            pub = pub_scores[i]
+            meme_gap = 100.0 * (meme_scores[i] - pub) / pub if pub > 0 and np.isfinite(meme_scores[i]) else np.nan
+            std_gap = 100.0 * (std_scores[i] - pub) / pub if pub > 0 and np.isfinite(std_scores[i]) else np.nan
+
+            if np.isfinite(meme_scores[i]) and np.isfinite(meme_gap):
+                ax.text(x[i] - width, meme_scores[i], f"{meme_gap:+.1f}%", ha='center', va='bottom', fontsize=8)
+            else:
+                ax.text(x[i] - width, pub_scores[i] * 0.05, 'N/A', ha='center', va='bottom', fontsize=8)
+
+            if np.isfinite(std_scores[i]) and np.isfinite(std_gap):
+                ax.text(x[i], std_scores[i], f"{std_gap:+.1f}%", ha='center', va='bottom', fontsize=8)
+            else:
+                ax.text(x[i], pub_scores[i] * 0.08, 'N/A', ha='center', va='bottom', fontsize=8)
+
+        output_path = os.path.join(self.output_dir, '05_final_universal_vs_published.png')
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"✓ Saved: {output_path}")
+        plt.close()
+
+    def plot_published_gap_histogram(self):
+        """
+        Plot histogram-style bars of gap (%) to published best for final universal score.
+        """
+        benchmarks = self.results['benchmarks']
+
+        labels = []
+        meme_gaps = []
+        std_gaps = []
+
+        for benchmark in benchmarks:
+            network = benchmark['network']
+            if network not in self.reference_scores:
+                continue
+
+            ref = self.reference_scores[network]
+            published_best = ref.get('published_best_universal_score')
+            if published_best is None or published_best <= 0:
+                continue
+
+            meme = benchmark['summary']['memetic_ga'].get('mean_paper_score')
+            std = benchmark['summary']['standard_ga'].get('mean_paper_score')
+            if meme is None:
+                meme = benchmark['summary']['memetic_ga']['mean_universal_score']
+            if std is None:
+                std = benchmark['summary']['standard_ga']['mean_universal_score']
+
+            labels.append(f"{benchmark['difficulty']}\n{network}")
+            meme_gaps.append(100.0 * (meme - published_best) / published_best if np.isfinite(meme) else np.nan)
+            std_gaps.append(100.0 * (std - published_best) / published_best if np.isfinite(std) else np.nan)
+
+        if not labels:
+            print("⚠ Skipping published gap histogram (no published reference scores found).")
+            return
+
+        x = np.arange(len(labels))
+        width = 0.35
+
+        fig, ax = plt.subplots(figsize=(14, 6))
+        bars_meme = ax.bar(x - width / 2, meme_gaps, width, label='Memetic GA Gap (%)', color='#2E86AB', alpha=0.85)
+        bars_std = ax.bar(x + width / 2, std_gaps, width, label='Standard GA Gap (%)', color='#C73E1D', alpha=0.85)
+
+        ax.axhline(y=0, color='black', linewidth=1.2)
+        ax.set_title('Final Score Gap to Published Best', fontsize=13, fontweight='bold')
+        ax.set_ylabel('Gap to Published Best (%)')
+        ax.set_xlabel('Benchmark')
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.grid(True, axis='y', alpha=0.3)
+        ax.legend()
+
+        for bars in (bars_meme, bars_std):
+            for bar in bars:
+                h = bar.get_height()
+                if not np.isfinite(h):
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        0,
+                        'N/A',
+                        ha='center',
+                        va='bottom',
+                        fontsize=8
+                    )
+                    continue
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    h,
+                    f"{h:+.1f}%",
+                    ha='center',
+                    va='bottom' if h >= 0 else 'top',
+                    fontsize=8
+                )
+
+        output_path = os.path.join(self.output_dir, '06_final_gap_to_published_hist.png')
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"✓ Saved: {output_path}")
+        plt.close()
     
     def plot_all(self):
         """Generate all visualization plots."""
@@ -360,6 +550,8 @@ class ResultsVisualizer:
         self.plot_algorithm_comparison()
         self.plot_network_difficulty_analysis()
         self.plot_solution_details()
+        self.plot_published_final_comparison()
+        self.plot_published_gap_histogram()
         
         print("-" * 80)
         print(f"✓ All visualizations saved to: {self.output_dir}")
@@ -368,7 +560,7 @@ class ResultsVisualizer:
 def main():
     """Generate visualizations from benchmark results."""
     
-    results_file = r"c:\experimental-analysis-of-algorithms\water-distribution-networks\Memetic_GA\Attempt_001\results\benchmark_results.json"
+    results_file = r"c:\experimental-analysis-of-algorithms\water-distribution-networks\Memetic_GA\Attempt_003\results\benchmark_results.json"
     
     visualizer = ResultsVisualizer(results_file)
     visualizer.plot_all()
