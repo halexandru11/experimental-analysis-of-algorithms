@@ -756,7 +756,7 @@ class BenchmarkRunner:
             },
             'BIN.inp': {
                 'population_size': 70,
-                'max_generations': 150,
+                'max_generations': 250,
                 'local_search_intensity': 0.8
             }
         }
