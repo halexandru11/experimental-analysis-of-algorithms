@@ -206,15 +206,102 @@ c_i = m + 1
 But the potential drops enough to pay for the copying cost, giving:
 
 \[
+m = T
+\]
+
+\[
+\Phi_{i-1} = 2m - T = 2T - T = T
+\]
+
+After doubling:
+
+\[
+T' = 2T,\qquad m' = T + 1
+\]
+
+\[
+\Phi_i = 2m' - T' = 2(T+1) - 2T = 2
+\]
+
+\[
+c_i = T + 1
+\]
+
+\[
+\hat{c}_i = c_i + \Phi_i - \Phi_{i-1}
+\]
+
+\[
+\hat{c}_i = (T+1) + 2 - T
+\]
+
+\[
+\hat{c}_i = 3
+\]
+
+\[
 \hat{c}_i = O(1)
 \]
 
-Similarly, for DELETE operations:
+For a DELETE that triggers contraction:
 
-\begin{itemize}
-    \item Normal DELETE has constant amortized cost.
-    \item DELETE causing contraction also has constant amortized cost because the decrease in potential pays for copying.
-\end{itemize}
+\[
+m = \frac{T}{4} + 1
+\]
+
+Before deleting, we are in the second branch ($m < T/2$), so:
+
+\[
+\Phi_{i-1} = \frac{T}{2} - m
+=
+\frac{T}{2} - \left(\frac{T}{4}+1\right)
+=
+\frac{T}{4}-1
+\]
+
+After deleting one element, the number of elements becomes:
+
+\[
+m' = \frac{T}{4}
+\]
+
+Now the table contracts to:
+
+\[
+T' = \frac{T}{2}
+\]
+
+and copying cost is $m' = T/4$. Hence the actual cost is:
+
+\[
+c_i = 1 + \frac{T}{4}
+\]
+
+After contraction, $m' = T'/2$, so:
+
+\[
+\Phi_i = 2m' - T' = 2\cdot \frac{T}{4} - \frac{T}{2} = 0
+\]
+
+Therefore:
+
+\[
+\hat{c}_i = c_i + \Phi_i - \Phi_{i-1}
+\]
+
+\[
+\hat{c}_i = \left(1+\frac{T}{4}\right) + 0 - \left(\frac{T}{4}-1\right)
+\]
+
+\[
+\hat{c}_i = 2
+\]
+
+\[
+\hat{c}_i = O(1)
+\]
+
+For a normal DELETE without resizing, $c_i = 1$ and the potential changes by at most a constant, so its amortized cost is also $O(1)$.
 
 Therefore:
 
