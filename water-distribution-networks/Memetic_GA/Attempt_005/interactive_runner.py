@@ -4,6 +4,7 @@ import uuid
 import warnings
 import json
 import os
+import numpy as np
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -55,6 +56,8 @@ class InteractiveRunManager:
         self.attempt4_results_dir = self.base_dir / "Memetic_GA" / "Attempt_004" / "results"
         self.attempt5_dir = self.base_dir / "Memetic_GA" / "Attempt_005"
         self.attempt5_dir.mkdir(parents=True, exist_ok=True)
+        self.results_dir = self.attempt5_dir / "results"
+        self.results_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir = self.attempt5_dir / "checkpoints"
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
@@ -72,6 +75,26 @@ class InteractiveRunManager:
             reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
         )
         return visualizer.generate_all()
+
+    def generate_group_statistics_visualization(
+        self,
+        network_file: str,
+        algorithm: str,
+        latest_only: bool,
+        latest_limit: int = 12,
+    ) -> Optional[Path]:
+        output_dir = self.attempt5_dir / "results"
+        visualizer = HistoryVisualizer(
+            self.persistence,
+            output_dir=output_dir,
+            reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
+        )
+        return visualizer.plot_group_run_statistics(
+            network_file=network_file,
+            algorithm=algorithm,
+            latest_only=latest_only,
+            latest_limit=latest_limit,
+        )
 
     def delete_runs(self, run_ids: List[str]) -> int:
         if not run_ids:
@@ -128,7 +151,7 @@ class InteractiveRunManager:
             seed=int(normalized.get("seed", 42)),
             strict_objective_for_optimization=bool(normalized.get("strict_objective_for_optimization", True)),
             strict_check_full_population_each_gen=bool(normalized.get("strict_check_full_population_each_gen", True)),
-            repair_mode=str(normalized.get("repair_mode", "every_generation")),
+            repair_mode=str(normalized.get("repair_mode", "first_generation")),
         )
 
     def _checkpoint_path(self, run_id: str) -> Path:
@@ -279,9 +302,14 @@ class InteractiveRunManager:
                     base_cost = 1e12
                 if violation == float("inf"):
                     violation = 1e6
-                value = base_cost + (2e5 * violation) + 1e7
+                # Strict feasibility-first scalarization:
+                # any infeasible point is dominated by any feasible point.
+                value = 1e12 + base_cost + (1e9 * violation)
 
-            cache[key] = float(value)
+            # Avoid poisoning the cache with solver-failure/extreme-penalty values.
+            # Re-evaluating those later can recover if hydraulics become numerically stable.
+            if np.isfinite(value) and value < 1e14:
+                cache[key] = float(value)
             return float(value)
 
         return objective
@@ -311,6 +339,39 @@ class InteractiveRunManager:
             fitness_score_fn = None
             if cfg.strict_objective_for_optimization:
                 fitness_score_fn = self._strict_objective_fn(cfg.network_file, str(network_path), network)
+                self._log(run_id, "Optimization objective: strict paper feasibility-first (infeasible dominated)")
+            else:
+                self._log(run_id, "Optimization objective: fast proxy fitness (non-strict)", level="warning")
+
+            # Set up periodic feasibility checkpoints for large networks
+            # (prevents population from drifting infeasible)
+            feasibility_checkpoint_interval = None
+            feasibility_check_fn = None
+            repair_fn = None
+            
+            if network.get_pipe_count() > 100:
+                # MORE AGGRESSIVE: check every 5-10 generations for quick recovery
+                feasibility_checkpoint_interval = max(5, cfg.max_generations // 30)
+                if feasibility_checkpoint_interval > 15:
+                    feasibility_checkpoint_interval = 15
+                
+                def check_feasibility(diameters: list) -> bool:
+                    """Check if solution is hydraulically feasible under paper constraints."""
+                    result = self._runner._evaluate_paper_score(
+                        cfg.network_file, str(network_path), network, diameters
+                    )
+                    return result.get('paper_feasible', 0.0) > 0.5
+                
+                def repair_solution(diameters: list) -> list:
+                    """Repair infeasible solution using targeted greedy upsizing."""
+                    repair_result = self._runner._repair_to_paper_feasible(
+                        cfg.network_file, str(network_path), network, diameters
+                    )
+                    return repair_result.get('repaired_diameters', diameters)
+                
+                feasibility_check_fn = check_feasibility
+                repair_fn = repair_solution
+                self._log(run_id, f"Feasibility checkpoints enabled: every {feasibility_checkpoint_interval} generations (aggressive mode)")
 
             ga = MemeticGA(
                 network=network,
@@ -318,14 +379,24 @@ class InteractiveRunManager:
                 max_generations=cfg.max_generations,
                 crossover_rate=0.8,
                 mutation_rate=0.1,
-                local_search_intensity=cfg.local_search_intensity if cfg.algorithm == "memetic" else 0.0,
+                local_search_intensity=(
+                    min(cfg.local_search_intensity, 0.35)
+                    if (cfg.algorithm == "memetic" and cfg.strict_objective_for_optimization and network.get_pipe_count() > 100)
+                    else (cfg.local_search_intensity if cfg.algorithm == "memetic" else 0.0)
+                ),
                 diameter_options=diameter_options,
                 unit_cost_lookup=unit_cost_lookup if unit_cost_lookup else None,
                 fitness_score_fn=fitness_score_fn,
                 benchmark_eval_interval=1,
                 enable_early_stopping=False,
+                feasibility_checkpoint_interval=feasibility_checkpoint_interval,
+                feasibility_check_fn=feasibility_check_fn,
+                repair_fn=repair_fn,
                 seed=cfg.seed,
             )
+
+            if cfg.algorithm == "memetic" and cfg.strict_objective_for_optimization and network.get_pipe_count() > 100 and cfg.local_search_intensity > 0.35:
+                self._log(run_id, "Capped memetic local_search_intensity to 0.35 for large strict benchmark stability")
 
             best_paper_score_seen = float("inf")
             best_gap_seen = float("inf")
@@ -353,6 +424,27 @@ class InteractiveRunManager:
                 self._log(run_id, f"Resumed GA state at generation {checkpoint_gen}")
             else:
                 ga.initialize_population()
+
+                # Strict-mode feasibility anchor: keep one deterministic high-diameter
+                # candidate in population to avoid all-infeasible deadlocks.
+                if cfg.strict_objective_for_optimization and ga.population:
+                    anchor_diams = [ga.fitness_evaluator.diameter_values[-1]] * ga.num_pipes
+                    anchor_eval = self._runner._evaluate_paper_score(
+                        cfg.network_file,
+                        str(network_path),
+                        network,
+                        anchor_diams,
+                    )
+                    if anchor_eval.get("paper_feasible", 0.0) > 0.5:
+                        anchor_chromosome = [
+                            ga.fitness_evaluator.diameter_to_index(d)
+                            for d in anchor_diams
+                        ]
+                        anchor_ind = Individual(anchor_chromosome, ga.fitness_evaluator, ga.fitness_score_fn)
+                        worst_idx = max(range(len(ga.population)), key=lambda j: ga.population[j].fitness)
+                        ga.population[worst_idx] = anchor_ind
+                        self._log(run_id, "Injected strict feasible anchor individual into initial population")
+
                 init_mean = sum(ind.fitness for ind in ga.population) / max(1, len(ga.population))
                 self._log(run_id, f"Initial population fitness mean={init_mean:.2e}")
                 self._save_checkpoint(run_id, cfg, ga, best_paper_score_seen, best_gap_seen)
@@ -368,6 +460,7 @@ class InteractiveRunManager:
 
         try:
             remaining_generations = max(0, cfg.max_generations - int(ga.generation))
+            no_feasible_streak = 0
             for _ in range(remaining_generations):
                 if active.stop_event.is_set():
                     with active.lock:
@@ -378,8 +471,16 @@ class InteractiveRunManager:
                 ga.evolve_one_generation()
                 generation = ga.generation
 
+                # Run periodic feasibility checkpoint when configured.
+                if (
+                    ga.feasibility_checkpoint_interval
+                    and generation % int(ga.feasibility_checkpoint_interval) == 0
+                ):
+                    ga._check_feasibility_at_checkpoint()
+
                 best_ind = min(ga.population, key=lambda i: i.fitness)
                 diam_best = ga.fitness_evaluator.indices_to_diameters(best_ind.chromosome)
+                best_snapshot_chromosome = [int(gene) for gene in best_ind.chromosome]
                 best_training_fitness = float(best_ind.fitness)
                 best_training_cost = float(ga.fitness_evaluator.calculate_total_cost(diam_best))
 
@@ -406,12 +507,13 @@ class InteractiveRunManager:
                     )
                     repaired_diams = repaired.get("repaired_diameters")
                     if repaired.get("paper_feasible", 0.0) > 0.5 and repaired_diams:
-                        repaired_chromosome = [ga.fitness_evaluator.diameter_to_index(d) for d in repaired_diams]
+                        repaired_chromosome = [int(ga.fitness_evaluator.diameter_to_index(d)) for d in repaired_diams]
                         repaired_ind = Individual(repaired_chromosome, ga.fitness_evaluator, ga.fitness_score_fn)
                         worst_idx = max(range(len(ga.population)), key=lambda j: ga.population[j].fitness)
                         if repaired_ind.fitness < ga.population[worst_idx].fitness:
                             ga.population[worst_idx] = repaired_ind
                         strict_best = repaired
+                        best_snapshot_chromosome = repaired_chromosome
                         self._log(
                             run_id,
                             f"Gen {generation}: repaired best candidate to feasible (paper_cost={strict_best.get('paper_cost', float('inf')):.2e})",
@@ -428,6 +530,7 @@ class InteractiveRunManager:
                 if cfg.strict_check_full_population_each_gen:
                     feasible_count = 0
                     pop_best_feasible_cost = float("inf")
+                    pop_best_feasible_chromosome = None
                     for ind in ga.population:
                         # Check for stop signal between each individual evaluation
                         if active.stop_event.is_set():
@@ -440,7 +543,10 @@ class InteractiveRunManager:
                         ev = self._runner._evaluate_paper_score(cfg.network_file, str(network_path), network, d)
                         if ev.get("paper_feasible", 0.0) > 0.5:
                             feasible_count += 1
-                            pop_best_feasible_cost = min(pop_best_feasible_cost, float(ev.get("paper_cost", float("inf"))))
+                            cost = float(ev.get("paper_cost", float("inf")))
+                            if cost < pop_best_feasible_cost:
+                                pop_best_feasible_cost = cost
+                                pop_best_feasible_chromosome = list(ind.chromosome)
                     if pop_best_feasible_cost < float("inf"):
                         strict_best = {
                             **strict_best,
@@ -448,6 +554,8 @@ class InteractiveRunManager:
                             "paper_cost": pop_best_feasible_cost,
                             "paper_feasible": 1.0,
                         }
+                        if pop_best_feasible_chromosome is not None:
+                                best_snapshot_chromosome = [int(gene) for gene in pop_best_feasible_chromosome]
                     
                     # Re-check stop signal after population feasibility check
                     if active.stop_event.is_set():
@@ -455,6 +563,45 @@ class InteractiveRunManager:
                             active.status = "stopped"
                         self._log(run_id, "Run stopped by user")
                         break
+
+                # Guardrail for first-generation-only repair mode:
+                # if strict-mode population collapses to all-infeasible for several
+                # generations, run an occasional rescue repair to reintroduce feasibility.
+                if cfg.strict_objective_for_optimization:
+                    if feasible_count <= 0:
+                        no_feasible_streak += 1
+                    else:
+                        no_feasible_streak = 0
+
+                    if (
+                        cfg.repair_mode == "first_generation"
+                        and no_feasible_streak >= 3
+                        and generation % 5 == 0
+                    ):
+                        rescued = self._runner._repair_to_paper_feasible(
+                            cfg.network_file,
+                            str(network_path),
+                            network,
+                            diam_best,
+                        )
+                        rescued_diams = rescued.get("repaired_diameters")
+                        if rescued.get("paper_feasible", 0.0) > 0.5 and rescued_diams:
+                            rescued_chr = [int(ga.fitness_evaluator.diameter_to_index(d)) for d in rescued_diams]
+                            rescued_ind = Individual(rescued_chr, ga.fitness_evaluator, ga.fitness_score_fn)
+                            worst_idx = max(range(len(ga.population)), key=lambda j: ga.population[j].fitness)
+                            ga.population[worst_idx] = rescued_ind
+                            strict_best = rescued
+                            feasible_count = 1
+                            no_feasible_streak = 0
+                            best_snapshot_chromosome = rescued_chr
+                            self._log(
+                                run_id,
+                                (
+                                    "Applied feasibility rescue in first_generation mode "
+                                    f"(paper_cost={float(rescued.get('paper_cost', float('inf'))):.2e})"
+                                ),
+                                level="warning",
+                            )
 
                 paper_score = float(strict_best.get("paper_score", float("inf")))
                 paper_cost = float(strict_best.get("paper_cost", float("inf")))
@@ -480,6 +627,7 @@ class InteractiveRunManager:
                         "best_paper_feasible": paper_feasible,
                         "feasible_count": feasible_count,
                         "gap_to_published_pct": gap_pct,
+                        "best_chromosome_json": best_snapshot_chromosome,
                     },
                 )
 
@@ -500,6 +648,14 @@ class InteractiveRunManager:
                     active.best_gap_to_published_pct = gap_pct
 
                 self._save_checkpoint(run_id, cfg, ga, best_paper_score_seen, best_gap_seen)
+                
+                # Export live results CSV every 5 generations (for graph generation without stopping)
+                if generation % 5 == 0:
+                    try:
+                        results_csv = self.attempt5_dir / "live_results.csv"
+                        self.persistence.export_live_results_csv(results_csv)
+                    except Exception as e:
+                        self._log(run_id, f"Warning: Failed to export live results: {e}", level="warning")
 
             with active.lock:
                 if active.status == "running":

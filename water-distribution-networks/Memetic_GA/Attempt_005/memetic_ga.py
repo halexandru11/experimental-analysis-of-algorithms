@@ -234,15 +234,10 @@ class MemeticGA:
                         self.feasibility_checkpoint_history.append((self.generation, repaired_cost))
                         print(f"  [Checkpoint Gen {self.generation}] Improved via repair: cost={repaired_cost:.2e}")
                 
-                # Optional re-injection: replace worst individual in population with this feasible solution
-                worst_idx = np.argmax([ind.fitness for ind in self.population])
-                if repaired_individual.fitness < self.population[worst_idx].fitness:
-                    print(
-                        f"    -> Re-injecting feasible individual "
-                        f"(minimization: replacing worse fitness {self.population[worst_idx].fitness:.2e} "
-                        f"with better/lower {repaired_individual.fitness:.2e})"
-                    )
-                    self.population[worst_idx] = repaired_individual
+                # NOTE: We do NOT re-inject repaired solutions back into population.
+                # We track them as best_feasible to preserve through elitism,
+                # but allow SOTA selection to decide their fitness naturally.
+                # This keeps the algorithm pure to the SOTA evaluation approach.
             else:
                 print(f"  [Checkpoint Gen {self.generation}] Best individual infeasible; repair also failed")
 
@@ -362,7 +357,7 @@ class MemeticGA:
             num_iterations: Max iterations (reduced for speed)
         """
         iterations = max(1, int(num_iterations))
-        max_attempts = min(self.num_pipes, 20)  # Keep LS bounded for runtime
+        max_attempts = min(self.num_pipes, 8 if self.num_pipes > 100 else 20)
 
         for _ in range(iterations):
             pipe_indices = random.sample(range(self.num_pipes), max_attempts)
@@ -373,8 +368,9 @@ class MemeticGA:
                 best_gene = base_gene
                 best_fitness = current_fitness
 
-                # Keep large-network local search conservative to preserve feasibility.
-                deltas = (1,) if self.num_pipes > 100 else (-1, 1)
+                # Keep large-network local search conservative unless we have a strict
+                # external objective, in which case downsize moves are needed to refine cost.
+                deltas = (-1, 1) if (self.num_pipes <= 100 or self.fitness_score_fn is not None) else (1,)
 
                 # Explore one-step neighbors.
                 for delta in deltas:
@@ -415,8 +411,14 @@ class MemeticGA:
         new_population = []
         
         # Elitism: keep best individual
+        # Priority: prefer best_feasible_individual if it exists (never lose feasibility once found)
         best_idx = np.argmin(fitnesses)
         best_individual = self.population[best_idx].copy()
+        
+        if self.best_feasible_individual is not None:
+            # We have a known feasible solution; prefer it over potentially infeasible candidates
+            best_individual = self.best_feasible_individual.copy()
+        
         new_population.append(best_individual)
         
         # Generate offspring through crossover and mutation
@@ -442,10 +444,15 @@ class MemeticGA:
                 self.local_search_intensity,
                 0.2 + 0.3 * (self.generation / max(1, self.max_generations))
             )
-            
-            if self.num_pipes > 100 and random.random() < 0.3:
-                # For large networks, only search every 3-4 offspring
-                self._local_search_hillclimb(child1, 2)
+
+            if self.num_pipes > 100:
+                # Large strict benchmarks are sensitive to premature local convergence,
+                # but they still benefit from occasional refinement of both offspring.
+                large_net_prob = min(0.22, 0.75 * local_search_prob)
+                if random.random() < large_net_prob:
+                    self._local_search_hillclimb(child1, 2)
+                    if len(new_population) < self.population_size - 1:
+                        self._local_search_hillclimb(child2, 1)
             elif random.random() < local_search_prob:
                 ls_iterations = max(1, int(3 * self.local_search_intensity))
                 self._local_search_hillclimb(child1, ls_iterations)

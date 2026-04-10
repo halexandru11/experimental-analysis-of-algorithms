@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import tempfile
+import uuid
 import numpy as np
 from typing import Dict, List, Tuple
 from datetime import datetime
@@ -57,16 +58,20 @@ class BenchmarkRunner:
             elif paper_eval.get('paper_feasible', 0.0) > 0.5:
                 value = float(paper_eval.get('paper_cost', float('inf')))
             else:
-                # Finite penalty keeps selection pressure among infeasible candidates.
+                # Strict feasibility-first scalarization:
+                # any infeasible point is dominated by any feasible point.
                 base_cost = float(paper_eval.get('paper_cost', float('inf')))
                 violation = float(paper_eval.get('paper_violation', float('inf')))
                 if not np.isfinite(base_cost):
                     base_cost = 1e12
                 if not np.isfinite(violation):
                     violation = 1e6
-                value = base_cost + (2e5 * violation) + 1e7
+                value = 1e12 + base_cost + (1e9 * violation)
 
-            cache[key] = float(value)
+            # Cache only stable finite values; allow reevaluation of failure-path
+            # extreme penalties which can be numerical/transient in EPANET.
+            if np.isfinite(value) and value < 1e14:
+                cache[key] = float(value)
             return float(value)
 
         return objective
@@ -159,6 +164,7 @@ class BenchmarkRunner:
 
         # Hydraulic feasibility via EPANET simulator through WNTR
         temp_inp = None
+        run_prefix = None
         try:
             wn, temp_inp = self._load_wntr_model_robust(inp_filepath)
 
@@ -168,7 +174,13 @@ class BenchmarkRunner:
                 wn.get_link(pipe.id).diameter = float(diameters[i])
 
             sim = wntr.sim.EpanetSimulator(wn)
-            results = sim.run_sim()
+            # Use a unique file prefix per call to avoid temp-file collisions
+            # when multiple runs/evaluations execute concurrently.
+            run_prefix = os.path.join(
+                tempfile.gettempdir(),
+                f"wdn_eval_{uuid.uuid4().hex}"
+            )
+            results = sim.run_sim(file_prefix=run_prefix, convergence_error=True)
 
             min_head = self._get_min_head_requirement(network_file)
             pressure_ts = results.node['pressure']
@@ -227,6 +239,15 @@ class BenchmarkRunner:
                     os.remove(temp_inp)
                 except OSError:
                     pass
+
+            if run_prefix:
+                for ext in ('.inp', '.rpt', '.bin', '.hyd', '.out'):
+                    p = f"{run_prefix}{ext}"
+                    if os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except OSError:
+                            pass
 
     def _repair_to_paper_feasible(
         self,
@@ -842,7 +863,7 @@ class BenchmarkRunner:
         # Run multiple instances
         for run in range(num_runs):
             print(f"\n--- Run {run + 1}/{num_runs} ---")
-            use_strict_tln = (network_file == 'TLN.inp')
+            use_strict_objective = True
             
             # Memetic GA
             print("Running Memetic GA (with local search)...")
@@ -853,7 +874,7 @@ class BenchmarkRunner:
                 population_size=cfg['population_size'],
                 max_generations=cfg['max_generations'],
                 local_search_intensity=cfg['local_search_intensity'],
-                use_strict_paper_objective=use_strict_tln,
+                use_strict_paper_objective=use_strict_objective,
                 enable_early_stopping=(network_file != 'BIN.inp'),
                 seed=42 + run
             )
@@ -880,7 +901,7 @@ class BenchmarkRunner:
                 network,
                 population_size=cfg['population_size'],
                 max_generations=cfg['max_generations'],
-                use_strict_paper_objective=use_strict_tln,
+                use_strict_paper_objective=use_strict_objective,
                 enable_early_stopping=(network_file != 'BIN.inp'),
                 seed=42 + run
             )

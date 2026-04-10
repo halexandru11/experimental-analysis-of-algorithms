@@ -65,6 +65,7 @@ class RunPersistence:
                 )
                 """
             )
+            self._ensure_generation_column(conn, "best_chromosome_json", "TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS logs (
@@ -77,6 +78,15 @@ class RunPersistence:
                 )
                 """
             )
+
+    @staticmethod
+    def _ensure_generation_column(conn: sqlite3.Connection, column_name: str, column_type: str) -> None:
+        existing = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(generations)").fetchall()
+        }
+        if column_name not in existing:
+            conn.execute(f"ALTER TABLE generations ADD COLUMN {column_name} {column_type}")
 
     def create_run(self, run_id: str, algorithm: str, network_file: str, config: Dict[str, Any]) -> None:
         with self._lock:
@@ -110,6 +120,9 @@ class RunPersistence:
     def append_generation(self, run_id: str, payload: Dict[str, Any]) -> None:
         with self._lock:
             with self._connect() as conn:
+                best_chromosome_json = payload.get("best_chromosome_json")
+                if best_chromosome_json is not None and not isinstance(best_chromosome_json, str):
+                    best_chromosome_json = json.dumps(best_chromosome_json)
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO generations (
@@ -122,8 +135,9 @@ class RunPersistence:
                         best_paper_feasible,
                         feasible_count,
                         gap_to_published_pct,
+                        best_chromosome_json,
                         ts
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -135,6 +149,7 @@ class RunPersistence:
                         payload.get("best_paper_feasible"),
                         payload.get("feasible_count"),
                         payload.get("gap_to_published_pct"),
+                        best_chromosome_json,
                         datetime.utcnow().isoformat(),
                     ),
                 )
@@ -300,14 +315,26 @@ class RunPersistence:
                 """
                 SELECT generation, best_training_fitness, best_training_cost,
                        best_paper_score, best_paper_cost, best_paper_feasible,
-                       feasible_count, gap_to_published_pct, ts
+                       feasible_count, gap_to_published_pct, best_chromosome_json, ts
                 FROM generations
                 WHERE run_id = ?
                 ORDER BY generation ASC
                 """,
                 (run_id,),
             ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            best_chromosome_json = item.get("best_chromosome_json")
+            if best_chromosome_json:
+                try:
+                    item["best_chromosome"] = json.loads(best_chromosome_json)
+                except json.JSONDecodeError:
+                    item["best_chromosome"] = None
+            else:
+                item["best_chromosome"] = None
+            result.append(item)
+        return result
 
     def latest_completed_run_for_network_algorithm(
         self,
@@ -321,7 +348,7 @@ class RunPersistence:
                 FROM runs
                 WHERE network_file = ?
                   AND algorithm = ?
-                  AND status IN ('completed', 'stopped')
+                  AND status IN ('completed', 'stopped', 'running')
                 ORDER BY started_at DESC
                 LIMIT 1
                 """,
@@ -343,7 +370,7 @@ class RunPersistence:
                 SELECT run_id, algorithm, network_file, status, started_at, ended_at, config_json, summary_json
                 FROM runs
                 WHERE network_file = ?
-                  AND status IN ('completed', 'stopped')
+                  AND status IN ('completed', 'stopped', 'running')
                 ORDER BY started_at DESC
                 LIMIT 1
                 """,
@@ -357,3 +384,63 @@ class RunPersistence:
         result["config"] = json.loads(result.pop("config_json") or "{}")
         result["summary"] = json.loads(result.pop("summary_json") or "{}")
         return result
+
+    def export_live_results_csv(self, output_path: Path) -> None:
+        """
+        Export live results table: current generation and best scores for each active/recent run.
+        Updates at every generation so graphs can be generated without stopping.
+        
+        Formats as CSV with columns:
+        network_file, algorithm, generation, status, best_paper_score, best_paper_cost, feasible_count, gap_to_published_pct
+        """
+        import csv
+        
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with self._lock:
+            with self._connect() as conn:
+                # Get all runs (active or recently stopped)
+                runs = conn.execute(
+                    """
+                    SELECT run_id, algorithm, network_file, status
+                    FROM runs
+                    ORDER BY started_at DESC
+                    """
+                ).fetchall()
+                
+                rows = []
+                for run in runs:
+                    run_id = run['run_id']
+                    
+                    # Get latest generation for this run
+                    latest_gen = conn.execute(
+                        """
+                        SELECT generation, best_paper_score, best_paper_cost, feasible_count, gap_to_published_pct
+                        FROM generations
+                        WHERE run_id = ?
+                        ORDER BY generation DESC
+                        LIMIT 1
+                        """,
+                        (run_id,)
+                    ).fetchone()
+                    
+                    if latest_gen:
+                        rows.append({
+                            'network_file': run['network_file'],
+                            'algorithm': run['algorithm'],
+                            'status': run['status'],
+                            'generation': latest_gen['generation'],
+                            'best_paper_score': latest_gen['best_paper_score'],
+                            'best_paper_cost': latest_gen['best_paper_cost'],
+                            'feasible_count': latest_gen['feasible_count'],
+                            'gap_to_published_pct': latest_gen['gap_to_published_pct'],
+                        })
+        
+        # Write CSV
+        if rows:
+            with open(output_path, 'w', newline='') as f:
+                fieldnames = ['network_file', 'algorithm', 'status', 'generation', 'best_paper_score', 'best_paper_cost', 'feasible_count', 'gap_to_published_pct']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow(row)
