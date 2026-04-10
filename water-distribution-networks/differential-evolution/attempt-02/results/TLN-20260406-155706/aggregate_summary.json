@@ -1,9 +1,0 @@
-{
-  "instance": "TLN.inp",
-  "runs": 10,
-  "best_fitness_min": 0.00014232874848202405,
-  "best_fitness_max": 0.0021009429994010317,
-  "best_fitness_mean": 0.0007460589424306577,
-  "best_fitness_median": 0.00046777769414276367,
-  "best_fitness_stdev": 0.0006066650984375868
-}

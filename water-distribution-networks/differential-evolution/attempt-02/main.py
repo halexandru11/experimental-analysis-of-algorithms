@@ -8,8 +8,10 @@ from pathlib import Path
 import os
 import re
 import statistics
+import sys
 import tempfile
 import threading
+import time
 
 import numpy as np
 import wntr
@@ -84,11 +86,57 @@ def _min_head_requirement(reference_entry: dict) -> float:
     return 20.0
 
 
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None or not np.isfinite(seconds):
+        return "--:--"
+    total = max(0, int(round(seconds)))
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _build_progress_line(
+    run_id: int,
+    done_generations: int,
+    total_generations: int,
+    elapsed_seconds: float,
+    best_cost: float | None,
+    finished: bool,
+    published_best_cost: float,
+) -> str:
+    bar_width = 24
+    progress = done_generations / max(1, total_generations)
+    filled = min(bar_width, int(round(progress * bar_width)))
+    bar = f"{'#' * filled}{'-' * (bar_width - filled)}"
+    pct = progress * 100.0
+
+    if finished:
+        eta_fragment = f"done in {_format_duration(elapsed_seconds)}"
+    elif done_generations <= 0:
+        eta_fragment = "eta --:--"
+    else:
+        remaining = max(0, total_generations - done_generations)
+        eta_seconds = (elapsed_seconds / done_generations) * remaining
+        eta_fragment = f"eta {_format_duration(eta_seconds)}"
+
+    if best_cost is not None and published_best_cost > 0:
+        distance_pct = max(0.0, ((best_cost / published_best_cost) - 1.0) * 100.0)
+        best_fragment = f"{distance_pct:.2f}%"
+    else:
+        best_fragment = "--"
+    return (
+        f"run {run_id:02d} [{bar}] {pct:6.2f}% "
+        f"{done_generations:3d}/{total_generations:3d} {eta_fragment} best={best_fragment}"
+    )
+
+
 def main() -> None:
     base_dir = Path(__file__).resolve().parents[2]
     data_dir = base_dir / "data"
 
-    instance_name = os.environ.get("WDN_INSTANCE", "TLN.inp")
+    instance_name = os.environ.get("WDN_INSTANCE", "BIN.inp")
     preferred_instance_path = data_dir / instance_name
     if preferred_instance_path.exists():
         instance_path = preferred_instance_path
@@ -124,6 +172,7 @@ def main() -> None:
 
     def _run_single_experiment(run_id: int) -> dict[str, object]:
         # Isolate WNTR state per run to avoid cross-thread mutations.
+        _mark_progress_started(run_id)
         wn, temp_inp = _load_wntr_model_robust(instance_path)
         objective_cache: dict[tuple[float, ...], float] = {}
 
@@ -180,6 +229,9 @@ def main() -> None:
                 bounds=bounds,
                 rng=rng,
                 config=config,
+                progress_callback=lambda generation, best: _update_progress(
+                    run_id, generation, best
+                ),
             )
 
             best_cost = result.best_fitness
@@ -211,15 +263,15 @@ def main() -> None:
                     pass
 
     config = DifferentialEvolutionConfig(
-        population_size=50,
-        generations=100,
-        mutation_factor=0.8,
-        crossover_rate=0.9,
+        population_size=40,
+        generations=2000,
+        mutation_factor=0.5,
+        crossover_rate=0.8,
     )
-    runs = 12
+    runs = 1
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    results_dir = Path(__file__).resolve().parent / "results" / f"{instance_path.stem}-{timestamp}"
+    instance_run_id = f"{config.generations}-{config.population_size}-{int(config.mutation_factor*100)}-{int(config.crossover_rate*100)}"
+    results_dir = Path(__file__).resolve().parent / "results" / f"{instance_path.stem}-{instance_run_id}"
     results_dir.mkdir(parents=True, exist_ok=True)
 
     experiment_meta = {
@@ -242,34 +294,157 @@ def main() -> None:
     )
 
     best_costs: list[float] = []
+    run_durations_seconds: list[float] = []
     run_summaries: list[dict[str, float]] = []
     simulator_lock = threading.Lock()
-
-    max_workers = min(runs, max(1, os.cpu_count() or 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(_run_single_experiment, run_id): run_id
-            for run_id in range(1, runs + 1)
+    progress_lock = threading.Lock()
+    progress_state: dict[int, dict[str, float | int | bool | None]] = {
+        run_id: {
+            "done_generations": 0,
+            "start_time": None,
+            "finished": False,
+            "best_cost": None,
+            "finished_elapsed_seconds": None,
         }
-        for future in as_completed(futures):
-            run_payload = future.result()
-            run_id = int(run_payload["run_id"])
-            best_cost = float(run_payload["best_cost"])
-            run_summary = run_payload["run_summary"]
-            history = run_payload["history"]
-            best_vector = run_payload["best_vector"]
+        for run_id in range(1, runs + 1)
+    }
 
-            best_costs.append(best_cost)
-            run_summaries.append(run_summary)  # type: ignore[arg-type]
+    progress_enabled = sys.stdout.isatty()
+    stop_progress_render = threading.Event()
+    rendered_line_count = 0
 
-            _write_csv(results_dir / f"run_{run_id:02d}_history.csv", history)  # type: ignore[arg-type]
-            (results_dir / f"run_{run_id:02d}_best_vector.csv").write_text(
-                ",".join(str(value) for value in best_vector) + "\n",  # type: ignore[arg-type]
-                encoding="utf-8",
+    def _update_progress(run_id: int, done_generations: int, best_cost: float) -> None:
+        with progress_lock:
+            state = progress_state[run_id]
+            state["done_generations"] = done_generations
+            state["best_cost"] = best_cost
+
+    def _mark_progress_started(run_id: int) -> None:
+        with progress_lock:
+            state = progress_state[run_id]
+            state["start_time"] = time.monotonic()
+            state["finished"] = False
+            state["finished_elapsed_seconds"] = None
+
+    def _mark_progress_done(run_id: int, final_best_cost: float) -> None:
+        with progress_lock:
+            state = progress_state[run_id]
+            start_time = state["start_time"]
+            if start_time is None:
+                start_time = time.monotonic()
+                state["start_time"] = start_time
+            finished_elapsed_seconds = time.monotonic() - float(start_time)
+            state["done_generations"] = config.generations
+            state["best_cost"] = final_best_cost
+            state["finished"] = True
+            state["finished_elapsed_seconds"] = finished_elapsed_seconds
+
+    def _render_progress() -> None:
+        nonlocal rendered_line_count
+        if not progress_enabled:
+            return
+        now = time.monotonic()
+        with progress_lock:
+            snapshot = {
+                run_id: {
+                    "done_generations": int(state["done_generations"]),
+                    "start_time": (
+                        float(state["start_time"]) if state["start_time"] is not None else None
+                    ),
+                    "finished": bool(state["finished"]),
+                    "best_cost": (
+                        float(state["best_cost"]) if state["best_cost"] is not None else None
+                    ),
+                    "finished_elapsed_seconds": (
+                        float(state["finished_elapsed_seconds"])
+                        if state["finished_elapsed_seconds"] is not None
+                        else None
+                    ),
+                }
+                for run_id, state in progress_state.items()
+            }
+
+        lines = ["Per-run progress:"]
+        for run_id in sorted(snapshot):
+            state = snapshot[run_id]
+            start_time = state["start_time"]
+            elapsed = (
+                state["finished_elapsed_seconds"]
+                if state["finished"] and state["finished_elapsed_seconds"] is not None
+                else (now - start_time if start_time is not None else 0.0)
             )
+            lines.append(
+                _build_progress_line(
+                    run_id=run_id,
+                    done_generations=state["done_generations"],
+                    total_generations=config.generations,
+                    elapsed_seconds=elapsed,
+                    best_cost=state["best_cost"],
+                    finished=state["finished"],
+                    published_best_cost=published_best_cost,
+                )
+            )
+
+        if rendered_line_count > 0:
+            sys.stdout.write(f"\x1b[{rendered_line_count}F")
+        for line in lines:
+            sys.stdout.write(f"\x1b[K{line}\n")
+        sys.stdout.flush()
+        rendered_line_count = len(lines)
+
+    def _progress_renderer_worker() -> None:
+        while not stop_progress_render.is_set():
+            _render_progress()
+            if stop_progress_render.wait(timeout=0.5):
+                break
+        _render_progress()
+
+    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    progress_thread = (
+        threading.Thread(target=_progress_renderer_worker, daemon=True)
+        if progress_enabled
+        else None
+    )
+    if progress_thread is not None:
+        progress_thread.start()
+
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_run_single_experiment, run_id): run_id
+                for run_id in range(1, runs + 1)
+            }
+            for future in as_completed(futures):
+                run_payload = future.result()
+                run_id = int(run_payload["run_id"])
+                best_cost = float(run_payload["best_cost"])
+                run_summary = run_payload["run_summary"]
+                history = run_payload["history"]
+                best_vector = run_payload["best_vector"]
+
+                best_costs.append(best_cost)
+                run_summaries.append(run_summary)  # type: ignore[arg-type]
+                _mark_progress_done(run_id, best_cost)
+                with progress_lock:
+                    finished_elapsed_seconds = progress_state[run_id]["finished_elapsed_seconds"]
+                if finished_elapsed_seconds is not None:
+                    run_durations_seconds.append(float(finished_elapsed_seconds))
+
+                _write_csv(results_dir / f"run_{run_id:02d}_history.csv", history)  # type: ignore[arg-type]
+                (results_dir / f"run_{run_id:02d}_best_vector.csv").write_text(
+                    ",".join(str(value) for value in best_vector) + "\n",  # type: ignore[arg-type]
+                    encoding="utf-8",
+                )
+    finally:
+        stop_progress_render.set()
+        if progress_thread is not None:
+            progress_thread.join()
+            if rendered_line_count > 0:
+                print()
 
     aggregate = {
         "instance": instance_path.name,
+        "experiment_config": experiment_meta["de_config"],
         "runs": runs,
         "published_best_cost": published_best_cost,
         "best_cost_min": min(best_costs),
@@ -277,6 +452,13 @@ def main() -> None:
         "best_cost_mean": statistics.mean(best_costs),
         "best_cost_median": statistics.median(best_costs),
         "best_cost_stdev": statistics.stdev(best_costs) if len(best_costs) > 1 else 0.0,
+        "run_time_seconds_min": min(run_durations_seconds),
+        "run_time_seconds_max": max(run_durations_seconds),
+        "run_time_seconds_mean": statistics.mean(run_durations_seconds),
+        "run_time_seconds_median": statistics.median(run_durations_seconds),
+        "run_time_seconds_stdev": (
+            statistics.stdev(run_durations_seconds) if len(run_durations_seconds) > 1 else 0.0
+        ),
         "best_run_distance_from_published_best_pct": max(
             0.0, ((min(best_costs) / published_best_cost) - 1.0) * 100.0
         ),
@@ -296,10 +478,19 @@ def main() -> None:
     print(f"Runs completed: {runs}")
     print(f"Results saved to: {results_dir}")
     print(
+        "Run time stats:",
+        f"min={_format_duration(aggregate['run_time_seconds_min'])},",
+        f"median={_format_duration(aggregate['run_time_seconds_median'])},",
+        f"mean={_format_duration(aggregate['run_time_seconds_mean'])},",
+        f"max={_format_duration(aggregate['run_time_seconds_max'])},",
+        f"std={_format_duration(aggregate['run_time_seconds_stdev'])}",
+    )
+    print(
         "Cost stats:",
         f"min={aggregate['best_cost_min']:.2f},",
         f"median={aggregate['best_cost_median']:.2f},",
         f"mean={aggregate['best_cost_mean']:.2f},",
+        f"max={aggregate['best_cost_max']:.2f},",
         f"std={aggregate['best_cost_stdev']:.2f}",
     )
     print(

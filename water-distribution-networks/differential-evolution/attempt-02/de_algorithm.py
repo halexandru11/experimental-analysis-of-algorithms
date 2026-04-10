@@ -26,6 +26,7 @@ def run_differential_evolution(
     bounds: np.ndarray,
     rng: np.random.Generator,
     config: DifferentialEvolutionConfig,
+    progress_callback: Callable[[int, float], None] | None = None,
 ) -> DifferentialEvolutionResult:
     dimension = bounds.shape[0]
     low = bounds[:, 0]
@@ -70,6 +71,8 @@ def run_differential_evolution(
                 "std_fitness": float(np.std(fitness)),
             }
         )
+        if progress_callback is not None:
+            progress_callback(generation + 1, best_fitness)
 
     return DifferentialEvolutionResult(
         best_vector=best_vector, best_fitness=best_fitness, history=history

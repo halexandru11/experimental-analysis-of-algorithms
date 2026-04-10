@@ -29,7 +29,7 @@
     "confidence": "High",
     "notes": "Best value 419000 confirmed in Siew & Tanyimboh (2012), Section 5.1/Table 1; Exeter link retained for benchmark data/spec context."
   },
-  "hanoi.inp": {
+  "HAN.inp": {
     "published_best_universal_score": 6081000,
     "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
     "published_best_source": "Secondary citation from review/summary material: Lim, S. H., Lee, C. W., Hong, S. J., & Yoo, D. G. (2020), Journal of the Korea Academia-Industrial cooperation Society, 21(5), 295-303; and user-provided benchmark summary (H527) reporting Hanoi global optimum = $6.081M.",
