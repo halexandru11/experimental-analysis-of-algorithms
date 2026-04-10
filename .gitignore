@@ -1,3 +1,4 @@
 # water-distribution-networks
 
 .venv
+**/__pycache__/**
