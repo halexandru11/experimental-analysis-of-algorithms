@@ -3,20 +3,17 @@ import time
 import uuid
 import warnings
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Reuse Attempt_004 implementation modules.
-import sys
+# Force non-interactive matplotlib backend to avoid Tk backend calls from worker threads.
+os.environ.setdefault("MPLBACKEND", "Agg")
 
-ATTEMPT_004_DIR = Path(__file__).resolve().parent.parent / "Attempt_004"
-if str(ATTEMPT_004_DIR) not in sys.path:
-    sys.path.insert(0, str(ATTEMPT_004_DIR))
-
-from memetic_ga import Individual, MemeticGA  # noqa: E402  # pyright: ignore[reportMissingImports]
-from network_parser import parse_inp_file  # noqa: E402  # pyright: ignore[reportMissingImports]
-from test_benchmarks import BenchmarkRunner  # noqa: E402  # pyright: ignore[reportMissingImports]
+from memetic_ga import Individual, MemeticGA
+from network_parser import parse_inp_file
+from test_benchmarks import BenchmarkRunner
 
 from history_visualizer import HistoryVisualizer
 from persistence import RunPersistence

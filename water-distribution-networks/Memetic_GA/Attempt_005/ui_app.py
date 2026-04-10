@@ -444,7 +444,30 @@ class MemeticUI:
         except Exception:
             pass
 
-        self.root.destroy()
+        # Wait briefly for worker threads to drain before destroying Tk.
+        self._wait_for_threads_then_close(time.time() + 5.0)
+
+    def _wait_for_threads_then_close(self, deadline: float) -> None:
+        try:
+            active_ids = self.manager.get_active_run_ids()
+        except Exception:
+            active_ids = []
+
+        if not active_ids:
+            self.root.quit()
+            self.root.destroy()
+            return
+
+        if time.time() >= deadline:
+            # Force close after timeout if workers are still busy.
+            self.root.quit()
+            self.root.destroy()
+            return
+
+        self.status_var.set(
+            f"Closing: waiting for {len(active_ids)} run(s) to stop..."
+        )
+        self.root.after(200, lambda: self._wait_for_threads_then_close(deadline))
 
 
 def main() -> None:
