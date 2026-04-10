@@ -10,6 +10,8 @@ import warnings
 warnings.filterwarnings("ignore", message=".*main thread is not in main loop.*")
 
 from interactive_runner import InteractiveRunManager, RunConfig
+from browser_replay import BrowserReplayExporter
+from solution_visualizer import SolutionEvolutionViewer
 
 
 class MemeticUI:
@@ -21,8 +23,9 @@ class MemeticUI:
         self._refresh_after_id: Optional[str] = None
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        base_dir = Path(__file__).resolve().parents[2]
-        self.manager = InteractiveRunManager(base_dir)
+        self.base_dir = Path(__file__).resolve().parents[2]
+        self.manager = InteractiveRunManager(self.base_dir)
+        self.browser_replay = BrowserReplayExporter(self.base_dir, self.manager.persistence)
 
         self.selected_run_id: Optional[str] = None
         self.last_displayed_log_count: int = 0  # Track logs we've already shown
@@ -40,6 +43,7 @@ class MemeticUI:
         self.gen_var = tk.IntVar(value=250)
         self.local_var = tk.DoubleVar(value=0.8)
         self.seed_var = tk.IntVar(value=42)
+        self.parallel_runs_var = tk.IntVar(value=1)
         self.strict_obj_var = tk.BooleanVar(value=True)
         self.full_pop_var = tk.BooleanVar(value=True)
         self.repair_mode_var = tk.StringVar(value="first_generation")
@@ -63,6 +67,9 @@ class MemeticUI:
 
         ttk.Label(row0, text="Seed").pack(side="left", padx=(10, 0))
         ttk.Entry(row0, textvariable=self.seed_var, width=8).pack(side="left", padx=6)
+
+        ttk.Label(row0, text="Parallel Runs").pack(side="left", padx=(10, 0))
+        ttk.Spinbox(row0, from_=1, to=32, textvariable=self.parallel_runs_var, width=5).pack(side="left", padx=6)
 
         row1 = ttk.Frame(control)
         row1.pack(fill="x", padx=6, pady=4)
@@ -89,13 +96,17 @@ class MemeticUI:
 
         row2 = ttk.Frame(control)
         row2.pack(fill="x", padx=6, pady=4)
-        ttk.Button(row2, text="Start Run", command=self._start_run).pack(side="left")
-        ttk.Button(row2, text="Resume Selected Run", command=self._resume_selected_run).pack(side="left", padx=6)
-        ttk.Button(row2, text="Stop Selected Run", command=self._stop_selected_run).pack(side="left", padx=6)
+        ttk.Button(row2, text="Start Runs", command=self._start_run).pack(side="left")
+        ttk.Button(row2, text="Resume Selected Runs", command=self._resume_selected_run).pack(side="left", padx=6)
+        ttk.Button(row2, text="Stop Selected Runs", command=self._stop_selected_run).pack(side="left", padx=6)
         ttk.Button(row2, text="Delete Selected Runs", command=self._delete_selected_runs).pack(side="left", padx=6)
         ttk.Button(row2, text="Force Delete from DB", command=self._force_delete_from_db).pack(side="left", padx=6)
         ttk.Button(row2, text="Refresh History", command=self._refresh_history).pack(side="left", padx=6)
         ttk.Button(row2, text="Generate Graphs", command=self._generate_graphs).pack(side="left", padx=6)
+        ttk.Button(row2, text="Stats: Latest Runs", command=self._generate_latest_group_stats).pack(side="left", padx=6)
+        ttk.Button(row2, text="Stats: All Runs", command=self._generate_all_group_stats).pack(side="left", padx=6)
+        ttk.Button(row2, text="Open Browser Replay", command=self._open_browser_replay).pack(side="left", padx=6)
+        ttk.Button(row2, text="View Solution Replay", command=self._open_solution_viewer).pack(side="left", padx=6)
 
         status_frame = ttk.LabelFrame(self.root, text="Live Status")
         status_frame.pack(fill="x", padx=8, pady=6)
@@ -139,6 +150,15 @@ class MemeticUI:
             repair_mode=self.repair_mode_var.get(),
         )
 
+    def _selected_run_ids(self) -> list[str]:
+        selected = self.history_tree.selection()
+        run_ids = []
+        for item in selected:
+            values = self.history_tree.item(item, "values")
+            if values:
+                run_ids.append(values[0])
+        return run_ids
+
     def _start_run(self) -> None:
         try:
             cfg = self._build_config()
@@ -146,61 +166,105 @@ class MemeticUI:
             messagebox.showerror("Invalid config", str(exc))
             return
 
-        run_id = self.manager.start_run(cfg)
+        parallel_count = max(1, int(self.parallel_runs_var.get()))
+        base_seed = int(cfg.seed)
+        started_ids = []
+
+        for i in range(parallel_count):
+            run_cfg = RunConfig(
+                network_file=cfg.network_file,
+                algorithm=cfg.algorithm,
+                population_size=cfg.population_size,
+                max_generations=cfg.max_generations,
+                local_search_intensity=cfg.local_search_intensity,
+                seed=base_seed + i,
+                strict_objective_for_optimization=cfg.strict_objective_for_optimization,
+                strict_check_full_population_each_gen=cfg.strict_check_full_population_each_gen,
+                repair_mode=cfg.repair_mode,
+            )
+            started_ids.append(self.manager.start_run(run_cfg))
+
+        run_id = started_ids[-1]
         self.selected_run_id = run_id
         self._refresh_history()
-        self.status_var.set(f"Started {run_id}")
+        if len(started_ids) == 1:
+            self.status_var.set(f"Started {run_id}")
+        else:
+            self.status_var.set(f"Started {len(started_ids)} runs (last: {run_id})")
 
     def _resume_selected_run(self) -> None:
-        selected = self.history_tree.selection()
-        if not selected:
+        run_ids = self._selected_run_ids()
+        if not run_ids:
             messagebox.showinfo("Resume Run", "Select a run in history first.")
             return
 
-        first = selected[0]
-        values = self.history_tree.item(first, "values")
-        if not values:
+        statuses = {}
+        for item in self.history_tree.selection():
+            values = self.history_tree.item(item, "values")
+            if values:
+                statuses[values[0]] = values[3]
+
+        if not statuses:
             messagebox.showinfo("Resume Run", "No valid run selected.")
             return
 
-        run_id = values[0]
-        status = values[3]
-        force = False
-        if status == "completed":
+        completed = [rid for rid, status in statuses.items() if status == "completed"]
+        if completed and len(completed) == len(statuses):
             messagebox.showinfo("Resume Run", "Completed runs cannot be resumed.")
             return
-        if status == "running":
+
+        running = [rid for rid, status in statuses.items() if status == "running"]
+        force = False
+        if running:
             force = messagebox.askyesno(
                 "Force Resume",
-                "This run is marked as running in history.\n"
+                "One or more selected runs are marked as running in history.\n"
                 "Use FORCE resume only if the app was closed/crashed and no thread is actually running.",
             )
             if not force:
                 return
 
-        try:
-            resumed_run_id = self.manager.resume_run(run_id, force=force)
-        except Exception as exc:
-            messagebox.showerror("Resume Run", f"Failed: {exc}")
-            return
+        resumed = []
+        skipped = []
+        for run_id, status in statuses.items():
+            if status == "completed":
+                skipped.append(run_id)
+                continue
+            try:
+                self.manager.resume_run(run_id, force=force if status == "running" else False)
+                resumed.append(run_id)
+            except Exception as exc:
+                messagebox.showerror("Resume Run", f"Failed for {run_id}: {exc}")
+                return
 
-        self.selected_run_id = resumed_run_id
-        self._refresh_history()
-        self.status_var.set(f"Resumed {resumed_run_id}{' (forced)' if force else ''}")
+        if resumed:
+            self.selected_run_id = resumed[-1]
+            self._refresh_history()
+            self.status_var.set(f"Resumed {len(resumed)} run(s){' (forced)' if force else ''}")
+        elif skipped:
+            messagebox.showinfo("Resume Run", "No resumable runs were selected.")
 
     def _stop_selected_run(self) -> None:
-        if not self.selected_run_id:
+        run_ids = self._selected_run_ids()
+        if not run_ids and self.selected_run_id:
+            run_ids = [self.selected_run_id]
+        if not run_ids:
+            messagebox.showinfo("Stop Runs", "Select one or more runs in history first.")
             return
-        self.manager.stop_run(self.selected_run_id)
+
+        stopped = 0
+        for run_id in run_ids:
+            self.manager.stop_run(run_id)
+            stopped += 1
+
+        self.status_var.set(f"Stopped {stopped} run(s)")
 
     def _force_delete_from_db(self) -> None:
         """Bypass all checks and nuke selected runs from DB."""
-        selected = self.history_tree.selection()
-        if not selected:
+        run_ids = self._selected_run_ids()
+        if not run_ids:
             messagebox.showinfo("Force Delete from DB", "Select one or more runs in history first.")
             return
-
-        run_ids = [self.history_tree.item(item, "values")[0] for item in selected]
         
         confirm = messagebox.askyesno(
             "Force Delete from DB",
@@ -225,13 +289,16 @@ class MemeticUI:
         self.status_var.set(f"Force-deleted {deleted} run(s) from DB")
 
     def _delete_selected_runs(self) -> None:
-        selected = self.history_tree.selection()
-        if not selected:
+        run_ids = self._selected_run_ids()
+        if not run_ids:
             messagebox.showinfo("Delete Runs", "Select one or more runs in history first.")
             return
 
-        run_ids = [self.history_tree.item(item, "values")[0] for item in selected]
-        statuses = [self.history_tree.item(item, "values")[3] for item in selected]
+        statuses = []
+        for item in self.history_tree.selection():
+            values = self.history_tree.item(item, "values")
+            if values:
+                statuses.append(values[3])
 
         running = [rid for rid, st in zip(run_ids, statuses) if st == "running"]
         if running:
@@ -299,6 +366,108 @@ class MemeticUI:
         # Open output folder for convenience on Windows.
         try:
             os.startfile(str(outputs[0].parent))
+        except Exception:
+            pass
+
+    def _open_solution_viewer(self) -> None:
+        selected = self.history_tree.selection()
+        if not selected:
+            messagebox.showinfo("Solution Replay", "Select a run in history first.")
+            return
+
+        run_id = self.history_tree.item(selected[0], "values")[0]
+        try:
+            SolutionEvolutionViewer(self.root, self.base_dir, self.manager.persistence, run_id)
+        except Exception as exc:
+            messagebox.showerror("Solution Replay", f"Failed: {exc}")
+
+    def _open_browser_replay(self) -> None:
+        selected = self.history_tree.selection()
+        if not selected:
+            messagebox.showinfo("Browser Replay", "Select a run in history first.")
+            return
+
+        run_id = self.history_tree.item(selected[0], "values")[0]
+        try:
+            output_path = self.browser_replay.export_and_open(run_id)
+        except Exception as exc:
+            messagebox.showerror("Browser Replay", f"Failed: {exc}")
+            return
+
+        self.status_var.set(f"Opened browser replay: {output_path.name}")
+
+    def _generate_latest_group_stats(self) -> None:
+        self._generate_group_stats(latest_only=True)
+
+    def _generate_all_group_stats(self) -> None:
+        self._generate_group_stats(latest_only=False)
+
+    def _generate_group_stats(self, latest_only: bool) -> None:
+        network_file = self.network_var.get()
+        algorithm = self.algorithm_var.get()
+        latest_limit = max(2, int(self.parallel_runs_var.get()))
+        # For "latest" stats, use at least the parallel count and a small floor for stability.
+        if latest_only:
+            latest_limit = max(4, latest_limit)
+
+        # Try selected group first; if insufficient data, auto-fallback to any available group.
+        candidates: list[tuple[str, str]] = [(network_file, algorithm)]
+
+        for net in self.manager.supported_benchmarks():
+            pair = (net, algorithm)
+            if pair not in candidates:
+                candidates.append(pair)
+
+        for algo in ("memetic", "standard"):
+            for net in self.manager.supported_benchmarks():
+                pair = (net, algo)
+                if pair not in candidates:
+                    candidates.append(pair)
+
+        chosen: Optional[tuple[str, str]] = None
+        output = None
+        last_error: Optional[str] = None
+
+        for net, algo in candidates:
+            try:
+                output = self.manager.generate_group_statistics_visualization(
+                    network_file=net,
+                    algorithm=algo,
+                    latest_only=latest_only,
+                    latest_limit=latest_limit,
+                )
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+            if output is not None:
+                chosen = (net, algo)
+                break
+
+        if output is None:
+            scope = "latest" if latest_only else "all"
+            msg = (
+                f"Not enough run data for any network/algorithm group ({scope}).\n"
+                "Need at least 2 runs with finite strict-score generation data."
+            )
+            if last_error:
+                msg += f"\n\nLast error: {last_error}"
+            messagebox.showinfo("Run Statistics", msg)
+            return
+
+        chosen_net, chosen_algo = chosen if chosen else (network_file, algorithm)
+        scope = "latest" if latest_only else "all"
+        self.status_var.set(f"Generated {scope} stats: {chosen_net} / {chosen_algo}")
+        if (chosen_net, chosen_algo) != (network_file, algorithm):
+            messagebox.showinfo(
+                "Run Statistics",
+                f"Selected group had insufficient data.\n"
+                f"Generated fallback: {chosen_net} / {chosen_algo}\n\n{output}",
+            )
+        else:
+            messagebox.showinfo("Run Statistics", f"Generated:\n{output}")
+        try:
+            os.startfile(str(output.parent))
         except Exception:
             pass
 
@@ -440,6 +609,17 @@ class MemeticUI:
             except Exception:
                 pass
 
+        try:
+            self.root.withdraw()
+        except Exception:
+            pass
+
+        # Stop local browser replay HTTP server thread if running.
+        try:
+            self.browser_replay.shutdown()
+        except Exception:
+            pass
+
         # Request stop for active runs so worker threads can exit cleanly.
         try:
             for run_id in self.manager.get_active_run_ids():
@@ -447,7 +627,7 @@ class MemeticUI:
         except Exception:
             pass
 
-        # Wait briefly for worker threads to drain before destroying Tk.
+        # Wait for worker threads to drain before destroying Tk.
         self._wait_for_threads_then_close(time.time() + 5.0)
 
     def _wait_for_threads_then_close(self, deadline: float) -> None:
@@ -462,9 +642,12 @@ class MemeticUI:
             return
 
         if time.time() >= deadline:
-            # Force close after timeout if workers are still busy.
-            self.root.quit()
-            self.root.destroy()
+            # Do not force-destroy Tk while worker threads are still alive.
+            # Forcing here can trigger Tcl_AsyncDelete/thread-affinity crashes.
+            self.status_var.set(
+                f"Closing: waiting for {len(active_ids)} run(s) to stop..."
+            )
+            self.root.after(400, lambda: self._wait_for_threads_then_close(time.time() + 5.0))
             return
 
         self.status_var.set(

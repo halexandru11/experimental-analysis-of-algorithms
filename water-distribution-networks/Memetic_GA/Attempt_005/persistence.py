@@ -65,6 +65,7 @@ class RunPersistence:
                 )
                 """
             )
+            self._ensure_generation_column(conn, "best_chromosome_json", "TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS logs (
@@ -77,6 +78,15 @@ class RunPersistence:
                 )
                 """
             )
+
+    @staticmethod
+    def _ensure_generation_column(conn: sqlite3.Connection, column_name: str, column_type: str) -> None:
+        existing = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(generations)").fetchall()
+        }
+        if column_name not in existing:
+            conn.execute(f"ALTER TABLE generations ADD COLUMN {column_name} {column_type}")
 
     def create_run(self, run_id: str, algorithm: str, network_file: str, config: Dict[str, Any]) -> None:
         with self._lock:
@@ -110,6 +120,9 @@ class RunPersistence:
     def append_generation(self, run_id: str, payload: Dict[str, Any]) -> None:
         with self._lock:
             with self._connect() as conn:
+                best_chromosome_json = payload.get("best_chromosome_json")
+                if best_chromosome_json is not None and not isinstance(best_chromosome_json, str):
+                    best_chromosome_json = json.dumps(best_chromosome_json)
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO generations (
@@ -122,8 +135,9 @@ class RunPersistence:
                         best_paper_feasible,
                         feasible_count,
                         gap_to_published_pct,
+                        best_chromosome_json,
                         ts
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -135,6 +149,7 @@ class RunPersistence:
                         payload.get("best_paper_feasible"),
                         payload.get("feasible_count"),
                         payload.get("gap_to_published_pct"),
+                        best_chromosome_json,
                         datetime.utcnow().isoformat(),
                     ),
                 )
@@ -300,14 +315,26 @@ class RunPersistence:
                 """
                 SELECT generation, best_training_fitness, best_training_cost,
                        best_paper_score, best_paper_cost, best_paper_feasible,
-                       feasible_count, gap_to_published_pct, ts
+                       feasible_count, gap_to_published_pct, best_chromosome_json, ts
                 FROM generations
                 WHERE run_id = ?
                 ORDER BY generation ASC
                 """,
                 (run_id,),
             ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            best_chromosome_json = item.get("best_chromosome_json")
+            if best_chromosome_json:
+                try:
+                    item["best_chromosome"] = json.loads(best_chromosome_json)
+                except json.JSONDecodeError:
+                    item["best_chromosome"] = None
+            else:
+                item["best_chromosome"] = None
+            result.append(item)
+        return result
 
     def latest_completed_run_for_network_algorithm(
         self,

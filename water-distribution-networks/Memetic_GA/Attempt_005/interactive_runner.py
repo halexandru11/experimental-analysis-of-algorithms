@@ -76,6 +76,26 @@ class InteractiveRunManager:
         )
         return visualizer.generate_all()
 
+    def generate_group_statistics_visualization(
+        self,
+        network_file: str,
+        algorithm: str,
+        latest_only: bool,
+        latest_limit: int = 12,
+    ) -> Optional[Path]:
+        output_dir = self.attempt5_dir / "results"
+        visualizer = HistoryVisualizer(
+            self.persistence,
+            output_dir=output_dir,
+            reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
+        )
+        return visualizer.plot_group_run_statistics(
+            network_file=network_file,
+            algorithm=algorithm,
+            latest_only=latest_only,
+            latest_limit=latest_limit,
+        )
+
     def delete_runs(self, run_ids: List[str]) -> int:
         if not run_ids:
             return 0
@@ -460,6 +480,7 @@ class InteractiveRunManager:
 
                 best_ind = min(ga.population, key=lambda i: i.fitness)
                 diam_best = ga.fitness_evaluator.indices_to_diameters(best_ind.chromosome)
+                best_snapshot_chromosome = [int(gene) for gene in best_ind.chromosome]
                 best_training_fitness = float(best_ind.fitness)
                 best_training_cost = float(ga.fitness_evaluator.calculate_total_cost(diam_best))
 
@@ -486,12 +507,13 @@ class InteractiveRunManager:
                     )
                     repaired_diams = repaired.get("repaired_diameters")
                     if repaired.get("paper_feasible", 0.0) > 0.5 and repaired_diams:
-                        repaired_chromosome = [ga.fitness_evaluator.diameter_to_index(d) for d in repaired_diams]
+                        repaired_chromosome = [int(ga.fitness_evaluator.diameter_to_index(d)) for d in repaired_diams]
                         repaired_ind = Individual(repaired_chromosome, ga.fitness_evaluator, ga.fitness_score_fn)
                         worst_idx = max(range(len(ga.population)), key=lambda j: ga.population[j].fitness)
                         if repaired_ind.fitness < ga.population[worst_idx].fitness:
                             ga.population[worst_idx] = repaired_ind
                         strict_best = repaired
+                        best_snapshot_chromosome = repaired_chromosome
                         self._log(
                             run_id,
                             f"Gen {generation}: repaired best candidate to feasible (paper_cost={strict_best.get('paper_cost', float('inf')):.2e})",
@@ -508,6 +530,7 @@ class InteractiveRunManager:
                 if cfg.strict_check_full_population_each_gen:
                     feasible_count = 0
                     pop_best_feasible_cost = float("inf")
+                    pop_best_feasible_chromosome = None
                     for ind in ga.population:
                         # Check for stop signal between each individual evaluation
                         if active.stop_event.is_set():
@@ -520,7 +543,10 @@ class InteractiveRunManager:
                         ev = self._runner._evaluate_paper_score(cfg.network_file, str(network_path), network, d)
                         if ev.get("paper_feasible", 0.0) > 0.5:
                             feasible_count += 1
-                            pop_best_feasible_cost = min(pop_best_feasible_cost, float(ev.get("paper_cost", float("inf"))))
+                            cost = float(ev.get("paper_cost", float("inf")))
+                            if cost < pop_best_feasible_cost:
+                                pop_best_feasible_cost = cost
+                                pop_best_feasible_chromosome = list(ind.chromosome)
                     if pop_best_feasible_cost < float("inf"):
                         strict_best = {
                             **strict_best,
@@ -528,6 +554,8 @@ class InteractiveRunManager:
                             "paper_cost": pop_best_feasible_cost,
                             "paper_feasible": 1.0,
                         }
+                        if pop_best_feasible_chromosome is not None:
+                                best_snapshot_chromosome = [int(gene) for gene in pop_best_feasible_chromosome]
                     
                     # Re-check stop signal after population feasibility check
                     if active.stop_event.is_set():
@@ -558,13 +586,14 @@ class InteractiveRunManager:
                         )
                         rescued_diams = rescued.get("repaired_diameters")
                         if rescued.get("paper_feasible", 0.0) > 0.5 and rescued_diams:
-                            rescued_chr = [ga.fitness_evaluator.diameter_to_index(d) for d in rescued_diams]
+                            rescued_chr = [int(ga.fitness_evaluator.diameter_to_index(d)) for d in rescued_diams]
                             rescued_ind = Individual(rescued_chr, ga.fitness_evaluator, ga.fitness_score_fn)
                             worst_idx = max(range(len(ga.population)), key=lambda j: ga.population[j].fitness)
                             ga.population[worst_idx] = rescued_ind
                             strict_best = rescued
                             feasible_count = 1
                             no_feasible_streak = 0
+                            best_snapshot_chromosome = rescued_chr
                             self._log(
                                 run_id,
                                 (
@@ -598,6 +627,7 @@ class InteractiveRunManager:
                         "best_paper_feasible": paper_feasible,
                         "feasible_count": feasible_count,
                         "gap_to_published_pct": gap_pct,
+                        "best_chromosome_json": best_snapshot_chromosome,
                     },
                 )
 

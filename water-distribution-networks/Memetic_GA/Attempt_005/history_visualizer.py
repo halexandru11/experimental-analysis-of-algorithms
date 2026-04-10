@@ -260,3 +260,84 @@ class HistoryVisualizer:
                 outputs.append(out)
 
         return outputs
+
+    def _collect_group_runs(self, network_file: str, algorithm: str, latest_only: bool, latest_limit: int) -> List[Dict]:
+        rows = self.persistence.list_runs(limit=5000)
+        selected = [
+            r for r in rows
+            if r.network_file == network_file and r.algorithm == algorithm and r.status in ("completed", "stopped", "running")
+        ]
+        if latest_only:
+            selected = selected[: max(1, int(latest_limit))]
+
+        run_payloads: List[Dict] = []
+        for r in selected:
+            gens = self.persistence.load_generations(r.run_id)
+            y = [
+                float(g["best_paper_score"])
+                for g in gens
+                if g.get("best_paper_score") is not None and np.isfinite(float(g["best_paper_score"]))
+            ]
+            if not y:
+                continue
+            run_payloads.append({"run_id": r.run_id, "y": y})
+        return run_payloads
+
+    def plot_group_run_statistics(
+        self,
+        network_file: str,
+        algorithm: str,
+        latest_only: bool,
+        latest_limit: int = 12,
+    ) -> Optional[Path]:
+        run_payloads = self._collect_group_runs(network_file, algorithm, latest_only, latest_limit)
+        if len(run_payloads) < 2:
+            return None
+
+        min_len = min(len(r["y"]) for r in run_payloads)
+        if min_len < 2:
+            return None
+
+        cropped = np.array([r["y"][:min_len] for r in run_payloads], dtype=float)
+        x = np.arange(1, min_len + 1)
+
+        median_curve = np.median(cropped, axis=0)
+        p25 = np.percentile(cropped, 25, axis=0)
+        p75 = np.percentile(cropped, 75, axis=0)
+
+        finals = cropped[:, -1]
+        best_idx = int(np.argmin(finals))
+        worst_idx = int(np.argmax(finals))
+
+        best_curve = cropped[best_idx]
+        worst_curve = cropped[worst_idx]
+        best_run_id = run_payloads[best_idx]["run_id"]
+        worst_run_id = run_payloads[worst_idx]["run_id"]
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.fill_between(x, p25, p75, color="#93c5fd", alpha=0.35, label="IQR (25-75%)")
+        ax.plot(x, median_curve, color="#1d4ed8", linewidth=2.6, label="Median")
+        ax.plot(x, best_curve, color="#15803d", linewidth=2.0, linestyle="-", label=f"Best run ({best_run_id})")
+        ax.plot(x, worst_curve, color="#b91c1c", linewidth=2.0, linestyle="-", label=f"Worst run ({worst_run_id})")
+
+        ax.set_xlabel("Generation (cropped to common min length)")
+        ax.set_ylabel("Best strict paper score")
+        ax.set_yscale("log")
+        scope = f"latest {min(latest_limit, len(run_payloads))}" if latest_only else "all"
+        ax.set_title(
+            f"Run Statistics | {network_file} | {ALGO_LABEL.get(algorithm, algorithm)} | {scope} runs | n={len(run_payloads)}"
+        )
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+
+        safe_net = network_file.replace(".inp", "")
+        out_name = (
+            f"10_stats_latest_{safe_net}_{algorithm}.png"
+            if latest_only
+            else f"11_stats_all_{safe_net}_{algorithm}.png"
+        )
+        out = self.output_dir / out_name
+        fig.tight_layout()
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return out
