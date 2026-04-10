@@ -57,14 +57,15 @@ class BenchmarkRunner:
             elif paper_eval.get('paper_feasible', 0.0) > 0.5:
                 value = float(paper_eval.get('paper_cost', float('inf')))
             else:
-                # Finite penalty keeps selection pressure among infeasible candidates.
+                # Strict feasibility-first scalarization:
+                # any infeasible point is dominated by any feasible point.
                 base_cost = float(paper_eval.get('paper_cost', float('inf')))
                 violation = float(paper_eval.get('paper_violation', float('inf')))
                 if not np.isfinite(base_cost):
                     base_cost = 1e12
                 if not np.isfinite(violation):
                     violation = 1e6
-                value = base_cost + (2e5 * violation) + 1e7
+                value = 1e12 + base_cost + (1e9 * violation)
 
             cache[key] = float(value)
             return float(value)
@@ -842,7 +843,7 @@ class BenchmarkRunner:
         # Run multiple instances
         for run in range(num_runs):
             print(f"\n--- Run {run + 1}/{num_runs} ---")
-            use_strict_tln = (network_file == 'TLN.inp')
+            use_strict_objective = True
             
             # Memetic GA
             print("Running Memetic GA (with local search)...")
@@ -853,7 +854,7 @@ class BenchmarkRunner:
                 population_size=cfg['population_size'],
                 max_generations=cfg['max_generations'],
                 local_search_intensity=cfg['local_search_intensity'],
-                use_strict_paper_objective=use_strict_tln,
+                use_strict_paper_objective=use_strict_objective,
                 enable_early_stopping=(network_file != 'BIN.inp'),
                 seed=42 + run
             )
@@ -880,7 +881,7 @@ class BenchmarkRunner:
                 network,
                 population_size=cfg['population_size'],
                 max_generations=cfg['max_generations'],
-                use_strict_paper_objective=use_strict_tln,
+                use_strict_paper_objective=use_strict_objective,
                 enable_early_stopping=(network_file != 'BIN.inp'),
                 seed=42 + run
             )

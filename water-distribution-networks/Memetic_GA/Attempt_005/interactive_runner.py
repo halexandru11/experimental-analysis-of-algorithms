@@ -55,6 +55,8 @@ class InteractiveRunManager:
         self.attempt4_results_dir = self.base_dir / "Memetic_GA" / "Attempt_004" / "results"
         self.attempt5_dir = self.base_dir / "Memetic_GA" / "Attempt_005"
         self.attempt5_dir.mkdir(parents=True, exist_ok=True)
+        self.results_dir = self.attempt5_dir / "results"
+        self.results_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir = self.attempt5_dir / "checkpoints"
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
@@ -279,7 +281,9 @@ class InteractiveRunManager:
                     base_cost = 1e12
                 if violation == float("inf"):
                     violation = 1e6
-                value = base_cost + (2e5 * violation) + 1e7
+                # Strict feasibility-first scalarization:
+                # any infeasible point is dominated by any feasible point.
+                value = 1e12 + base_cost + (1e9 * violation)
 
             cache[key] = float(value)
             return float(value)
@@ -298,6 +302,20 @@ class InteractiveRunManager:
                 cfg.repair_mode = "every_generation"
                 self._log(run_id, "Invalid repair_mode in config; defaulting to every_generation", level="warning")
 
+            # Legacy strict BIN runs often used first-generation-only repair,
+            # which allows the population to drift infeasible after resume.
+            if (
+                cfg.network_file == "BIN.inp"
+                and cfg.strict_objective_for_optimization
+                and cfg.repair_mode == "first_generation"
+            ):
+                cfg.repair_mode = "every_generation"
+                self._log(
+                    run_id,
+                    "Auto-upgraded repair_mode from first_generation to every_generation for strict BIN run",
+                    level="warning",
+                )
+
             # Suppress non-critical WNTR warnings about headloss formula and convergence
             warnings.filterwarnings("ignore", message=".*Changing the headloss formula.*")
             warnings.filterwarnings("ignore", message=".*Simulation did not converge.*")
@@ -311,6 +329,9 @@ class InteractiveRunManager:
             fitness_score_fn = None
             if cfg.strict_objective_for_optimization:
                 fitness_score_fn = self._strict_objective_fn(cfg.network_file, str(network_path), network)
+                self._log(run_id, "Optimization objective: strict paper feasibility-first (infeasible dominated)")
+            else:
+                self._log(run_id, "Optimization objective: fast proxy fitness (non-strict)", level="warning")
 
             # Set up periodic feasibility checkpoints for large networks
             # (prevents population from drifting infeasible)
@@ -348,7 +369,11 @@ class InteractiveRunManager:
                 max_generations=cfg.max_generations,
                 crossover_rate=0.8,
                 mutation_rate=0.1,
-                local_search_intensity=cfg.local_search_intensity if cfg.algorithm == "memetic" else 0.0,
+                local_search_intensity=(
+                    min(cfg.local_search_intensity, 0.35)
+                    if (cfg.algorithm == "memetic" and cfg.strict_objective_for_optimization and network.get_pipe_count() > 100)
+                    else (cfg.local_search_intensity if cfg.algorithm == "memetic" else 0.0)
+                ),
                 diameter_options=diameter_options,
                 unit_cost_lookup=unit_cost_lookup if unit_cost_lookup else None,
                 fitness_score_fn=fitness_score_fn,
@@ -359,6 +384,9 @@ class InteractiveRunManager:
                 repair_fn=repair_fn,
                 seed=cfg.seed,
             )
+
+            if cfg.algorithm == "memetic" and cfg.strict_objective_for_optimization and network.get_pipe_count() > 100 and cfg.local_search_intensity > 0.35:
+                self._log(run_id, "Capped memetic local_search_intensity to 0.35 for large strict benchmark stability")
 
             best_paper_score_seen = float("inf")
             best_gap_seen = float("inf")
@@ -410,6 +438,13 @@ class InteractiveRunManager:
 
                 ga.evolve_one_generation()
                 generation = ga.generation
+
+                # Run periodic feasibility checkpoint when configured.
+                if (
+                    ga.feasibility_checkpoint_interval
+                    and generation % int(ga.feasibility_checkpoint_interval) == 0
+                ):
+                    ga._check_feasibility_at_checkpoint()
 
                 best_ind = min(ga.population, key=lambda i: i.fitness)
                 diam_best = ga.fitness_evaluator.indices_to_diameters(best_ind.chromosome)
@@ -537,7 +572,7 @@ class InteractiveRunManager:
                 # Export live results CSV every 5 generations (for graph generation without stopping)
                 if generation % 5 == 0:
                     try:
-                        results_csv = self.checkpoints_dir.parent / "live_results.csv"
+                        results_csv = self.attempt5_dir / "live_results.csv"
                         self.persistence.export_live_results_csv(results_csv)
                     except Exception as e:
                         self._log(run_id, f"Warning: Failed to export live results: {e}", level="warning")

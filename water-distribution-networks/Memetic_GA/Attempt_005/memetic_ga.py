@@ -357,7 +357,7 @@ class MemeticGA:
             num_iterations: Max iterations (reduced for speed)
         """
         iterations = max(1, int(num_iterations))
-        max_attempts = min(self.num_pipes, 20)  # Keep LS bounded for runtime
+        max_attempts = min(self.num_pipes, 8 if self.num_pipes > 100 else 20)
 
         for _ in range(iterations):
             pipe_indices = random.sample(range(self.num_pipes), max_attempts)
@@ -368,8 +368,9 @@ class MemeticGA:
                 best_gene = base_gene
                 best_fitness = current_fitness
 
-                # Keep large-network local search conservative to preserve feasibility.
-                deltas = (1,) if self.num_pipes > 100 else (-1, 1)
+                # Keep large-network local search conservative unless we have a strict
+                # external objective, in which case downsize moves are needed to refine cost.
+                deltas = (-1, 1) if (self.num_pipes <= 100 or self.fitness_score_fn is not None) else (1,)
 
                 # Explore one-step neighbors.
                 for delta in deltas:
@@ -443,10 +444,15 @@ class MemeticGA:
                 self.local_search_intensity,
                 0.2 + 0.3 * (self.generation / max(1, self.max_generations))
             )
-            
-            if self.num_pipes > 100 and random.random() < 0.3:
-                # For large networks, only search every 3-4 offspring
-                self._local_search_hillclimb(child1, 2)
+
+            if self.num_pipes > 100:
+                # Large strict benchmarks are sensitive to premature local convergence,
+                # but they still benefit from occasional refinement of both offspring.
+                large_net_prob = min(0.22, 0.75 * local_search_prob)
+                if random.random() < large_net_prob:
+                    self._local_search_hillclimb(child1, 2)
+                    if len(new_population) < self.population_size - 1:
+                        self._local_search_hillclimb(child2, 1)
             elif random.random() < local_search_prob:
                 ls_iterations = max(1, int(3 * self.local_search_intensity))
                 self._local_search_hillclimb(child1, ls_iterations)

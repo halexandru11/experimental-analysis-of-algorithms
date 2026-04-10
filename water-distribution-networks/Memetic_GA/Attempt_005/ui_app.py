@@ -42,7 +42,7 @@ class MemeticUI:
         self.seed_var = tk.IntVar(value=42)
         self.strict_obj_var = tk.BooleanVar(value=True)
         self.full_pop_var = tk.BooleanVar(value=True)
-        self.repair_mode_var = tk.StringVar(value="first_generation")
+        self.repair_mode_var = tk.StringVar(value="every_generation")
 
         row0 = ttk.Frame(control)
         row0.pack(fill="x", padx=6, pady=4)
