@@ -1,0 +1,18 @@
+{
+  "instance": "TLN.inp",
+  "runs": 12,
+  "dimensions": 8,
+  "bounds_diameter_m": [
+    0.0254,
+    0.6096
+  ],
+  "objective_type": "minimize total pipe cost",
+  "cost_definition": "sum(unit_cost(d_i) * pipe_length_i)",
+  "published_best_cost": 419000.0,
+  "de_config": {
+    "population_size": 20,
+    "generations": 120,
+    "mutation_factor": 0.8,
+    "crossover_rate": 0.9
+  }
+}

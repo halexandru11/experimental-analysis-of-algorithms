@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ import os
 import re
 import statistics
 import tempfile
+import threading
 
 import numpy as np
 import wntr
@@ -111,9 +113,7 @@ def main() -> None:
         raise ValueError("Pipe length and decision vector dimensions are inconsistent.")
     min_head = _min_head_requirement(reference_entry)
 
-    wn, temp_inp = _load_wntr_model_robust(instance_path)
     junction_names = [node.id for node in parsed.junctions.entries] if parsed.junctions else []
-    objective_cache: dict[tuple[float, ...], float] = {}
 
     bounds = np.column_stack(
         (
@@ -122,55 +122,101 @@ def main() -> None:
         )
     )
 
-    def objective(candidate: np.ndarray) -> float:
-        snapped = _snap_to_allowed_diameters(candidate, allowed_diameters)
-        key = tuple(np.round(snapped, 8).tolist())
-        cached = objective_cache.get(key)
-        if cached is not None:
-            return cached
+    def _run_single_experiment(run_id: int) -> dict[str, object]:
+        # Isolate WNTR state per run to avoid cross-thread mutations.
+        wn, temp_inp = _load_wntr_model_robust(instance_path)
+        objective_cache: dict[tuple[float, ...], float] = {}
 
-        # Cost definition from benchmark metadata:
-        # sum(unit_cost(d_i) * pipe_length_i), with d_i snapped to allowed set.
-        snapped_indices = np.argmin(
-            np.abs(snapped[:, np.newaxis] - allowed_diameters[np.newaxis, :]), axis=1
-        )
-        snapped_unit_costs = unit_costs[snapped_indices]
-        cost = float(np.sum(snapped_unit_costs * pipe_lengths))
+        def objective(candidate: np.ndarray) -> float:
+            snapped = _snap_to_allowed_diameters(candidate, allowed_diameters)
+            key = tuple(np.round(snapped, 8).tolist())
+            cached = objective_cache.get(key)
+            if cached is not None:
+                return cached
 
-        for i, pipe in enumerate(parsed.pipes.entries):
-            if pipe.id in wn.pipe_name_list:
-                wn.get_link(pipe.id).diameter = float(snapped[i])
+            # Cost definition from benchmark metadata:
+            # sum(unit_cost(d_i) * pipe_length_i), with d_i snapped to allowed set.
+            snapped_indices = np.argmin(
+                np.abs(snapped[:, np.newaxis] - allowed_diameters[np.newaxis, :]), axis=1
+            )
+            snapped_unit_costs = unit_costs[snapped_indices]
+            cost = float(np.sum(snapped_unit_costs * pipe_lengths))
+
+            for i, pipe in enumerate(parsed.pipes.entries):
+                if pipe.id in wn.pipe_name_list:
+                    wn.get_link(pipe.id).diameter = float(snapped[i])
+
+            try:
+                # EPANET toolkit calls used by WNTR are not reliably thread-safe.
+                # Keep threaded run orchestration, but serialize toolkit simulations.
+                with simulator_lock:
+                    sim = wntr.sim.EpanetSimulator(wn)
+                    results = sim.run_sim()
+                pressure_ts = results.node["pressure"]
+                final_pressure = pressure_ts.iloc[-1]
+                available_junctions = [j for j in junction_names if j in final_pressure.index]
+                if not available_junctions:
+                    value = cost + 1e12
+                else:
+                    junction_pressures = final_pressure.loc[available_junctions]
+                    shortfalls = np.maximum(0.0, min_head - junction_pressures.values)
+                    violation = float(np.sum(shortfalls))
+                    if violation <= 1e-9:
+                        value = cost
+                    else:
+                        # Keep a finite penalty so DE can rank infeasible candidates.
+                        value = cost + (2e5 * violation) + 1e7
+            except Exception:
+                value = cost + 1e12
+
+            objective_cache[key] = value
+            return value
 
         try:
-            sim = wntr.sim.EpanetSimulator(wn)
-            results = sim.run_sim()
-            pressure_ts = results.node["pressure"]
-            final_pressure = pressure_ts.iloc[-1]
-            available_junctions = [j for j in junction_names if j in final_pressure.index]
-            if not available_junctions:
-                value = cost + 1e12
-            else:
-                junction_pressures = final_pressure.loc[available_junctions]
-                shortfalls = np.maximum(0.0, min_head - junction_pressures.values)
-                violation = float(np.sum(shortfalls))
-                if violation <= 1e-9:
-                    value = cost
-                else:
-                    # Keep a finite penalty so DE can rank infeasible candidates.
-                    value = cost + (2e5 * violation) + 1e7
-        except Exception:
-            value = cost + 1e12
+            seed = 10_000 + run_id
+            rng = np.random.default_rng(seed)
+            result = run_differential_evolution(
+                objective=objective,
+                bounds=bounds,
+                rng=rng,
+                config=config,
+            )
 
-        objective_cache[key] = value
-        return value
+            best_cost = result.best_fitness
+            # 0% is the target (matches/beats published best). Positive values show distance above target.
+            distance_from_published_best_pct = (
+                max(0.0, ((best_cost / published_best_cost) - 1.0) * 100.0)
+                if published_best_cost > 0
+                else 0.0
+            )
+            run_summary = {
+                "run_id": float(run_id),
+                "seed": float(seed),
+                "best_cost": best_cost,
+                "published_best_cost": published_best_cost,
+                "distance_from_published_best_pct": distance_from_published_best_pct,
+            }
+            return {
+                "run_id": run_id,
+                "best_cost": best_cost,
+                "run_summary": run_summary,
+                "history": result.history,
+                "best_vector": result.best_vector,
+            }
+        finally:
+            if temp_inp and temp_inp.exists():
+                try:
+                    temp_inp.unlink()
+                except OSError:
+                    pass
 
     config = DifferentialEvolutionConfig(
-        population_size=20,
-        generations=60,
+        population_size=50,
+        generations=100,
         mutation_factor=0.8,
         crossover_rate=0.9,
     )
-    runs = 10
+    runs = 12
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     results_dir = Path(__file__).resolve().parent / "results" / f"{instance_path.stem}-{timestamp}"
@@ -197,34 +243,30 @@ def main() -> None:
 
     best_costs: list[float] = []
     run_summaries: list[dict[str, float]] = []
+    simulator_lock = threading.Lock()
 
-    for run_id in range(1, runs + 1):
-        seed = 10_000 + run_id
-        rng = np.random.default_rng(seed)
-        result = run_differential_evolution(
-            objective=objective,
-            bounds=bounds,
-            rng=rng,
-            config=config,
-        )
-
-        best_cost = result.best_fitness
-        cost_effectiveness_pct = (published_best_cost / best_cost) * 100.0 if best_cost > 0 else 0.0
-        best_costs.append(best_cost)
-        run_summary = {
-            "run_id": float(run_id),
-            "seed": float(seed),
-            "best_cost": best_cost,
-            "published_best_cost": published_best_cost,
-            "cost_effectiveness_pct": cost_effectiveness_pct,
+    max_workers = min(runs, max(1, os.cpu_count() or 1))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_run_single_experiment, run_id): run_id
+            for run_id in range(1, runs + 1)
         }
-        run_summaries.append(run_summary)
+        for future in as_completed(futures):
+            run_payload = future.result()
+            run_id = int(run_payload["run_id"])
+            best_cost = float(run_payload["best_cost"])
+            run_summary = run_payload["run_summary"]
+            history = run_payload["history"]
+            best_vector = run_payload["best_vector"]
 
-        _write_csv(results_dir / f"run_{run_id:02d}_history.csv", result.history)
-        (results_dir / f"run_{run_id:02d}_best_vector.csv").write_text(
-            ",".join(str(value) for value in result.best_vector) + "\n",
-            encoding="utf-8",
-        )
+            best_costs.append(best_cost)
+            run_summaries.append(run_summary)  # type: ignore[arg-type]
+
+            _write_csv(results_dir / f"run_{run_id:02d}_history.csv", history)  # type: ignore[arg-type]
+            (results_dir / f"run_{run_id:02d}_best_vector.csv").write_text(
+                ",".join(str(value) for value in best_vector) + "\n",  # type: ignore[arg-type]
+                encoding="utf-8",
+            )
 
     aggregate = {
         "instance": instance_path.name,
@@ -235,8 +277,12 @@ def main() -> None:
         "best_cost_mean": statistics.mean(best_costs),
         "best_cost_median": statistics.median(best_costs),
         "best_cost_stdev": statistics.stdev(best_costs) if len(best_costs) > 1 else 0.0,
-        "best_run_cost_effectiveness_pct": (published_best_cost / min(best_costs)) * 100.0,
-        "median_run_cost_effectiveness_pct": (published_best_cost / statistics.median(best_costs)) * 100.0,
+        "best_run_distance_from_published_best_pct": max(
+            0.0, ((min(best_costs) / published_best_cost) - 1.0) * 100.0
+        ),
+        "median_run_distance_from_published_best_pct": max(
+            0.0, ((statistics.median(best_costs) / published_best_cost) - 1.0) * 100.0
+        ),
     }
 
     _write_csv(results_dir / "run_summaries.csv", run_summaries)
@@ -257,16 +303,9 @@ def main() -> None:
         f"std={aggregate['best_cost_stdev']:.2f}",
     )
     print(
-        "Cost effectiveness vs published best:",
-        f"best-run={aggregate['best_run_cost_effectiveness_pct']:.2f}%,",
-        f"median-run={aggregate['median_run_cost_effectiveness_pct']:.2f}%",
+        "Distance from published best (target=0%):",
+        f"best-run={aggregate['best_run_distance_from_published_best_pct']:.2f}%,",
+        f"median-run={aggregate['median_run_distance_from_published_best_pct']:.2f}%",
     )
-    if temp_inp and temp_inp.exists():
-        try:
-            temp_inp.unlink()
-        except OSError:
-            pass
-
-
 if __name__ == "__main__":
     main()
