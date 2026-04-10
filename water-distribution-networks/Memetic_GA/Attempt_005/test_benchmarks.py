@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import tempfile
+import uuid
 import numpy as np
 from typing import Dict, List, Tuple
 from datetime import datetime
@@ -67,7 +68,10 @@ class BenchmarkRunner:
                     violation = 1e6
                 value = 1e12 + base_cost + (1e9 * violation)
 
-            cache[key] = float(value)
+            # Cache only stable finite values; allow reevaluation of failure-path
+            # extreme penalties which can be numerical/transient in EPANET.
+            if np.isfinite(value) and value < 1e14:
+                cache[key] = float(value)
             return float(value)
 
         return objective
@@ -160,6 +164,7 @@ class BenchmarkRunner:
 
         # Hydraulic feasibility via EPANET simulator through WNTR
         temp_inp = None
+        run_prefix = None
         try:
             wn, temp_inp = self._load_wntr_model_robust(inp_filepath)
 
@@ -169,7 +174,13 @@ class BenchmarkRunner:
                 wn.get_link(pipe.id).diameter = float(diameters[i])
 
             sim = wntr.sim.EpanetSimulator(wn)
-            results = sim.run_sim()
+            # Use a unique file prefix per call to avoid temp-file collisions
+            # when multiple runs/evaluations execute concurrently.
+            run_prefix = os.path.join(
+                tempfile.gettempdir(),
+                f"wdn_eval_{uuid.uuid4().hex}"
+            )
+            results = sim.run_sim(file_prefix=run_prefix, convergence_error=True)
 
             min_head = self._get_min_head_requirement(network_file)
             pressure_ts = results.node['pressure']
@@ -228,6 +239,15 @@ class BenchmarkRunner:
                     os.remove(temp_inp)
                 except OSError:
                     pass
+
+            if run_prefix:
+                for ext in ('.inp', '.rpt', '.bin', '.hyd', '.out'):
+                    p = f"{run_prefix}{ext}"
+                    if os.path.exists(p):
+                        try:
+                            os.remove(p)
+                        except OSError:
+                            pass
 
     def _repair_to_paper_feasible(
         self,

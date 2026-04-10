@@ -4,6 +4,7 @@ import uuid
 import warnings
 import json
 import os
+import numpy as np
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -130,7 +131,7 @@ class InteractiveRunManager:
             seed=int(normalized.get("seed", 42)),
             strict_objective_for_optimization=bool(normalized.get("strict_objective_for_optimization", True)),
             strict_check_full_population_each_gen=bool(normalized.get("strict_check_full_population_each_gen", True)),
-            repair_mode=str(normalized.get("repair_mode", "every_generation")),
+            repair_mode=str(normalized.get("repair_mode", "first_generation")),
         )
 
     def _checkpoint_path(self, run_id: str) -> Path:
@@ -285,7 +286,10 @@ class InteractiveRunManager:
                 # any infeasible point is dominated by any feasible point.
                 value = 1e12 + base_cost + (1e9 * violation)
 
-            cache[key] = float(value)
+            # Avoid poisoning the cache with solver-failure/extreme-penalty values.
+            # Re-evaluating those later can recover if hydraulics become numerically stable.
+            if np.isfinite(value) and value < 1e14:
+                cache[key] = float(value)
             return float(value)
 
         return objective
@@ -301,20 +305,6 @@ class InteractiveRunManager:
             if cfg.repair_mode not in {"none", "first_generation", "every_generation"}:
                 cfg.repair_mode = "every_generation"
                 self._log(run_id, "Invalid repair_mode in config; defaulting to every_generation", level="warning")
-
-            # Legacy strict BIN runs often used first-generation-only repair,
-            # which allows the population to drift infeasible after resume.
-            if (
-                cfg.network_file == "BIN.inp"
-                and cfg.strict_objective_for_optimization
-                and cfg.repair_mode == "first_generation"
-            ):
-                cfg.repair_mode = "every_generation"
-                self._log(
-                    run_id,
-                    "Auto-upgraded repair_mode from first_generation to every_generation for strict BIN run",
-                    level="warning",
-                )
 
             # Suppress non-critical WNTR warnings about headloss formula and convergence
             warnings.filterwarnings("ignore", message=".*Changing the headloss formula.*")
@@ -414,6 +404,27 @@ class InteractiveRunManager:
                 self._log(run_id, f"Resumed GA state at generation {checkpoint_gen}")
             else:
                 ga.initialize_population()
+
+                # Strict-mode feasibility anchor: keep one deterministic high-diameter
+                # candidate in population to avoid all-infeasible deadlocks.
+                if cfg.strict_objective_for_optimization and ga.population:
+                    anchor_diams = [ga.fitness_evaluator.diameter_values[-1]] * ga.num_pipes
+                    anchor_eval = self._runner._evaluate_paper_score(
+                        cfg.network_file,
+                        str(network_path),
+                        network,
+                        anchor_diams,
+                    )
+                    if anchor_eval.get("paper_feasible", 0.0) > 0.5:
+                        anchor_chromosome = [
+                            ga.fitness_evaluator.diameter_to_index(d)
+                            for d in anchor_diams
+                        ]
+                        anchor_ind = Individual(anchor_chromosome, ga.fitness_evaluator, ga.fitness_score_fn)
+                        worst_idx = max(range(len(ga.population)), key=lambda j: ga.population[j].fitness)
+                        ga.population[worst_idx] = anchor_ind
+                        self._log(run_id, "Injected strict feasible anchor individual into initial population")
+
                 init_mean = sum(ind.fitness for ind in ga.population) / max(1, len(ga.population))
                 self._log(run_id, f"Initial population fitness mean={init_mean:.2e}")
                 self._save_checkpoint(run_id, cfg, ga, best_paper_score_seen, best_gap_seen)
@@ -429,6 +440,7 @@ class InteractiveRunManager:
 
         try:
             remaining_generations = max(0, cfg.max_generations - int(ga.generation))
+            no_feasible_streak = 0
             for _ in range(remaining_generations):
                 if active.stop_event.is_set():
                     with active.lock:
@@ -523,6 +535,44 @@ class InteractiveRunManager:
                             active.status = "stopped"
                         self._log(run_id, "Run stopped by user")
                         break
+
+                # Guardrail for first-generation-only repair mode:
+                # if strict-mode population collapses to all-infeasible for several
+                # generations, run an occasional rescue repair to reintroduce feasibility.
+                if cfg.strict_objective_for_optimization:
+                    if feasible_count <= 0:
+                        no_feasible_streak += 1
+                    else:
+                        no_feasible_streak = 0
+
+                    if (
+                        cfg.repair_mode == "first_generation"
+                        and no_feasible_streak >= 3
+                        and generation % 5 == 0
+                    ):
+                        rescued = self._runner._repair_to_paper_feasible(
+                            cfg.network_file,
+                            str(network_path),
+                            network,
+                            diam_best,
+                        )
+                        rescued_diams = rescued.get("repaired_diameters")
+                        if rescued.get("paper_feasible", 0.0) > 0.5 and rescued_diams:
+                            rescued_chr = [ga.fitness_evaluator.diameter_to_index(d) for d in rescued_diams]
+                            rescued_ind = Individual(rescued_chr, ga.fitness_evaluator, ga.fitness_score_fn)
+                            worst_idx = max(range(len(ga.population)), key=lambda j: ga.population[j].fitness)
+                            ga.population[worst_idx] = rescued_ind
+                            strict_best = rescued
+                            feasible_count = 1
+                            no_feasible_streak = 0
+                            self._log(
+                                run_id,
+                                (
+                                    "Applied feasibility rescue in first_generation mode "
+                                    f"(paper_cost={float(rescued.get('paper_cost', float('inf'))):.2e})"
+                                ),
+                                level="warning",
+                            )
 
                 paper_score = float(strict_best.get("paper_score", float("inf")))
                 paper_cost = float(strict_best.get("paper_cost", float("inf")))
