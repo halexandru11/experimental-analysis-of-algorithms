@@ -105,6 +105,9 @@ class MemeticGA:
         benchmark_score_fn: Optional[BenchmarkScoreFn] = None,
         benchmark_eval_interval: int = 5,
         enable_early_stopping: bool = True,
+        feasibility_checkpoint_interval: Optional[int] = None,
+        feasibility_check_fn: Optional[Callable[[List[float]], bool]] = None,
+        repair_fn: Optional[Callable[[List[float]], List[float]]] = None,
         seed: int = None
     ):
         """
@@ -123,6 +126,9 @@ class MemeticGA:
             benchmark_score_fn: Optional external benchmark metric function
             benchmark_eval_interval: Periodicity for benchmark metric tracking
             enable_early_stopping: Whether to stop on stagnation
+            feasibility_checkpoint_interval: Interval (generations) to check feasibility (None=disabled)
+            feasibility_check_fn: Function to check if solution is feasible (takes diameters list)
+            repair_fn: Function to repair infeasible solution (takes diameters, returns repaired diameters)
             seed: Random seed for reproducibility
         """
         self.network = network
@@ -143,6 +149,14 @@ class MemeticGA:
         self.benchmark_eval_interval = max(1, benchmark_eval_interval)
         self.enable_early_stopping = enable_early_stopping
         
+        # Feasibility checkpoint mechanism
+        self.feasibility_checkpoint_interval = feasibility_checkpoint_interval
+        self.feasibility_check_fn = feasibility_check_fn
+        self.repair_fn = repair_fn
+        self.best_feasible_individual: Optional[Individual] = None
+        self.best_feasible_generation: int = -1
+        self.feasibility_checkpoint_history: List[Tuple[int, float]] = []  # (generation, best_cost)
+        
         if seed is not None:
             random.seed(seed)
             np.random.seed(seed)
@@ -155,6 +169,82 @@ class MemeticGA:
         self.benchmark_eval_generations: List[int] = []
         self.benchmark_metric_name = 'universal_score'
         self.generation = 0
+
+    def _check_feasibility_at_checkpoint(self):
+        """
+        Periodic feasibility checkpoint: check best individual for feasibility,
+        attempt repair if needed, and track best feasible solution found.
+        
+        Called every feasibility_checkpoint_interval generations during optimization.
+        """
+        if not self.feasibility_check_fn or not self.repair_fn or not self.population:
+            return
+        
+        # Get best individual by training fitness
+        best_idx = np.argmin([ind.fitness for ind in self.population])
+        candidate = self.population[best_idx]
+        
+        # Convert to diameters for feasibility check
+        diameters = self.fitness_evaluator.indices_to_diameters(candidate.chromosome)
+        
+        # Check if already feasible
+        if self.feasibility_check_fn(diameters):
+            # Feasible - check if it's the best feasible yet
+            cost = float(self.fitness_evaluator.calculate_total_cost(diameters))
+            if self.best_feasible_individual is None:
+                self.best_feasible_individual = candidate.copy()
+                self.best_feasible_generation = self.generation
+                self.feasibility_checkpoint_history.append((self.generation, cost))
+                print(f"  [Checkpoint Gen {self.generation}] Found feasible solution: cost={cost:.2e}")
+            else:
+                best_cost = float(self.fitness_evaluator.calculate_total_cost(
+                    self.fitness_evaluator.indices_to_diameters(self.best_feasible_individual.chromosome)
+                ))
+                if cost < best_cost:
+                    self.best_feasible_individual = candidate.copy()
+                    self.best_feasible_generation = self.generation
+                    self.feasibility_checkpoint_history.append((self.generation, cost))
+                    print(f"  [Checkpoint Gen {self.generation}] Improved feasible solution: cost={cost:.2e}")
+        else:
+            # Infeasible - attempt repair
+            repaired_diameters = self.repair_fn(diameters)
+            repaired_cost = float(self.fitness_evaluator.calculate_total_cost(repaired_diameters))
+            
+            # Check if repair succeeded
+            if self.feasibility_check_fn(repaired_diameters):
+                # Repair succeeded
+                repaired_chromosome = [
+                    self.fitness_evaluator.diameter_to_index(d)
+                    for d in repaired_diameters
+                ]
+                repaired_individual = Individual(repaired_chromosome, self.fitness_evaluator, self.fitness_score_fn)
+                
+                if self.best_feasible_individual is None:
+                    self.best_feasible_individual = repaired_individual
+                    self.best_feasible_generation = self.generation
+                    self.feasibility_checkpoint_history.append((self.generation, repaired_cost))
+                    print(f"  [Checkpoint Gen {self.generation}] Repaired to feasible: cost={repaired_cost:.2e}")
+                else:
+                    best_cost = float(self.fitness_evaluator.calculate_total_cost(
+                        self.fitness_evaluator.indices_to_diameters(self.best_feasible_individual.chromosome)
+                    ))
+                    if repaired_cost < best_cost:
+                        self.best_feasible_individual = repaired_individual
+                        self.best_feasible_generation = self.generation
+                        self.feasibility_checkpoint_history.append((self.generation, repaired_cost))
+                        print(f"  [Checkpoint Gen {self.generation}] Improved via repair: cost={repaired_cost:.2e}")
+                
+                # Optional re-injection: replace worst individual in population with this feasible solution
+                worst_idx = np.argmax([ind.fitness for ind in self.population])
+                if repaired_individual.fitness < self.population[worst_idx].fitness:
+                    print(
+                        f"    -> Re-injecting feasible individual "
+                        f"(minimization: replacing worse fitness {self.population[worst_idx].fitness:.2e} "
+                        f"with better/lower {repaired_individual.fitness:.2e})"
+                    )
+                    self.population[worst_idx] = repaired_individual
+            else:
+                print(f"  [Checkpoint Gen {self.generation}] Best individual infeasible; repair also failed")
 
     def _evaluate_benchmark_individual(self, individual: Individual) -> float:
         """Evaluate external benchmark score for one individual."""
@@ -409,6 +499,10 @@ class MemeticGA:
             else:
                 stagnation_count = 0
             
+            # Periodic feasibility checkpoint
+            if self.feasibility_checkpoint_interval and self.generation % self.feasibility_checkpoint_interval == 0:
+                self._check_feasibility_at_checkpoint()
+            
             if gen % 10 == 0 or gen == self.max_generations - 1:
                 print(f"Gen {gen:3d}: Best={best_fit:.2e}, Avg={avg_fit:.2e}, Stagnation={stagnation_count}")
             
@@ -430,10 +524,18 @@ class MemeticGA:
             'metric_name': self.benchmark_metric_name,
             'generations': self.benchmark_eval_generations,
             'best_history': self.benchmark_best_history,
-            'avg_history': self.benchmark_avg_history
+            'avg_history': self.benchmark_avg_history,
+            'feasibility_checkpoint_history': self.feasibility_checkpoint_history,
+            'best_feasible_individual': self.best_feasible_individual,
+            'best_feasible_generation': self.best_feasible_generation
         }
         
         print(f"\nOptimization complete!")
         print(f"Best fitness: {best_individual.fitness:.2e}")
+        if self.best_feasible_individual is not None:
+            best_feasible_cost = float(self.fitness_evaluator.calculate_total_cost(
+                self.fitness_evaluator.indices_to_diameters(self.best_feasible_individual.chromosome)
+            ))
+            print(f"Best feasible solution found at Gen {self.best_feasible_generation}: cost={best_feasible_cost:.2e}")
         
         return best_individual, self.best_fitness_history, self.avg_fitness_history, benchmark_history

@@ -245,6 +245,7 @@ class BenchmarkRunner:
                 'repaired': 0.0,
                 'repair_steps': 0.0,
                 'repair_note': 'no_diameter_catalog',
+                'repaired_diameters': [float(d) for d in diameters],
                 'paper_score': float('inf'),
                 'paper_cost': float('inf'),
                 'paper_feasible': 0.0,
@@ -271,12 +272,18 @@ class BenchmarkRunner:
             return_diagnostics=True
         )
         if current_eval['paper_feasible'] > 0.5:
-            current_eval.update({'repaired': 0.0, 'repair_steps': 0.0, 'repair_note': 'already_feasible'})
+            current_eval.update({
+                'repaired': 0.0,
+                'repair_steps': 0.0,
+                'repair_note': 'already_feasible',
+                'repaired_diameters': current.copy()
+            })
             return current_eval
 
         pipe_count = network.get_pipe_count()
         if pipe_count > 300:
-            max_steps = 120
+            # Large networks need a wider repair budget to reach strict feasibility.
+            max_steps = 360
         elif pipe_count > 100:
             max_steps = 220
         else:
@@ -380,12 +387,27 @@ class BenchmarkRunner:
                 fallback_eval['repair_note'] = f"{fallback_eval.get('repair_note', '')}|selected_over_targeted"
                 return fallback_eval
             current_eval['repair_note'] = f"{current_eval.get('repair_note', '')}|selected_over_global"
+            current_eval['repaired_diameters'] = current.copy()
             return current_eval
 
         if fallback_eval.get('paper_feasible', 0.0) > current_eval.get('paper_feasible', 0.0):
             fallback_eval['repair_note'] = f"{fallback_eval.get('repair_note', '')}|selected_over_targeted"
             return fallback_eval
 
+        # Last-resort feasibility fallback: set all pipes to the maximum catalog diameter.
+        # This avoids reporting +inf when the benchmark can be made strictly feasible.
+        all_max = [options[-1] for _ in range(len(current))]
+        max_eval = self._evaluate_paper_score(network_file, inp_filepath, network, all_max)
+        if max_eval.get('paper_feasible', 0.0) > 0.5:
+            max_eval.update({
+                'repaired': 1.0,
+                'repair_steps': float(max_steps),
+                'repair_note': 'feasible_after_all_max_diameter_fallback',
+                'repaired_diameters': all_max.copy()
+            })
+            return max_eval
+
+        current_eval['repaired_diameters'] = current.copy()
         return current_eval
 
     def _repair_to_paper_feasible_global(
@@ -408,12 +430,17 @@ class BenchmarkRunner:
         idx = [to_index(d) for d in current]
         current_eval = self._evaluate_paper_score(network_file, inp_filepath, network, current)
         if current_eval['paper_feasible'] > 0.5:
-            current_eval.update({'repaired': 0.0, 'repair_steps': 0.0, 'repair_note': 'already_feasible_global'})
+            current_eval.update({
+                'repaired': 0.0,
+                'repair_steps': 0.0,
+                'repair_note': 'already_feasible_global',
+                'repaired_diameters': current.copy()
+            })
             return current_eval
 
         pipe_count = network.get_pipe_count()
         if pipe_count > 300:
-            max_steps = 80
+            max_steps = 260
             check_interval = 4
             batch_size = 10
         elif pipe_count > 80:
@@ -446,14 +473,16 @@ class BenchmarkRunner:
                     current_eval.update({
                         'repaired': 1.0,
                         'repair_steps': float(step),
-                        'repair_note': 'feasible_after_global_greedy_upsizing'
+                        'repair_note': 'feasible_after_global_greedy_upsizing',
+                        'repaired_diameters': current.copy()
                     })
                     return current_eval
 
         current_eval.update({
             'repaired': 1.0,
             'repair_steps': float(max_steps),
-            'repair_note': 'global_repair_budget_exhausted_infeasible'
+            'repair_note': 'global_repair_budget_exhausted_infeasible',
+            'repaired_diameters': current.copy()
         })
         return current_eval
 
@@ -577,6 +606,34 @@ class BenchmarkRunner:
                 network
             )
         
+        # Set up periodic feasibility checkpoints for large networks
+        feasibility_checkpoint_interval = None
+        feasibility_check_fn = None
+        repair_fn = None
+        
+        if network.get_pipe_count() > 100:
+            # For large networks (BIN=454 pipes), check feasibility every N generations
+            feasibility_checkpoint_interval = max(10, max_generations // 10)  # roughly every 10% of runtime
+            if feasibility_checkpoint_interval > 50:
+                feasibility_checkpoint_interval = 50  # Cap at 50 generations to get multiple checkpoints
+            
+            # Create closure over network parameters for feasibility checking
+            def check_feasibility(diameters: List[float]) -> bool:
+                """Check if solution is hydraulically feasible under paper constraints."""
+                result = self._evaluate_paper_score(network_file, inp_filepath, network, diameters)
+                return result.get('paper_feasible', 0.0) > 0.5
+            
+            def repair_solution(diameters: List[float]) -> List[float]:
+                """Repair infeasible solution using targeted greedy upsizing."""
+                repair_result = self._repair_to_paper_feasible(
+                    network_file, inp_filepath, network, diameters
+                )
+                return repair_result.get('repaired_diameters', diameters)
+            
+            feasibility_check_fn = check_feasibility
+            repair_fn = repair_solution
+            print(f"\n[Feasibility Checkpoints] Interval: every {feasibility_checkpoint_interval} generations")
+        
         ga = MemeticGA(
             network,
             population_size=population_size,
@@ -589,6 +646,9 @@ class BenchmarkRunner:
             fitness_score_fn=fitness_score_fn,
             benchmark_eval_interval=5,
             enable_early_stopping=enable_early_stopping,
+            feasibility_checkpoint_interval=feasibility_checkpoint_interval,
+            feasibility_check_fn=feasibility_check_fn,
+            repair_fn=repair_fn,
             seed=seed
         )
         

@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1774514731.72504 "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" "sota.pdf" "sota" 1774514733.95178 0
-  "C:/Users/mihai/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map" 1770193965 82507 a9eef8696c92627b87e9975edea03b2a ""
+["pdflatex"] 1775748132.22893 "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" "sota.pdf" "sota" 1775748134.67489 0
+  "C:/Users/mihai/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map" 1775204942 82507 a9eef8696c92627b87e9975edea03b2a ""
   "C:/Users/mihai/AppData/Local/MiKTeX/fonts/pk/ljfour/jknappen/ec/dpi600/tcrm1200.pk" 1764853372 14064 d71d15c06e1d92aeba80b539ef839f61 ""
   "C:/Users/mihai/AppData/Local/MiKTeX/miktex/data/le/pdftex/pdflatex.fmt" 1764853280 24225046 15b5171b9dc161ae83d54045812a2cce ""
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/tfm/jknappen/ec/tcrm1200.tfm" 993062508 1444 95ffe0f19b974d50849790c8225c7ef7 ""
@@ -199,10 +199,10 @@
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/rerunfilecheck/rerunfilecheck.sty" 1751104012 9684 a33a14b82ce60d6e77cb9be689d79ee6 ""
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/url/url.sty" 1388490452 12796 8edb7d69a20b857904dd0ea757c14ec9 ""
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/xcolor/xcolor.sty" 1700127522 55487 80a65caedd3722f4c20a14a69e785d8f ""
-  "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" 1774514482 32454 9dda0a8d975a93a5cb2bf41e70a99a12 ""
-  "sota.aux" 1774514733 2644 ee198befcad403f3ad663051f6890179 "pdflatex"
-  "sota.out" 1774514733 1139 723cd09dea5608d01a9b675f2dd40e74 "pdflatex"
-  "sota.tex" 1774514482 32454 9dda0a8d975a93a5cb2bf41e70a99a12 ""
+  "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" 1775748131 46453 2d8abd73d9050b0e4f5134149ed39669 ""
+  "sota.aux" 1775748134 3091 470229a253cf834cac2ffa7efd309aa1 "pdflatex"
+  "sota.out" 1775748134 1397 c4b27038a360fe7a7b9a37ea50b91e1d "pdflatex"
+  "sota.tex" 1775748131 46453 2d8abd73d9050b0e4f5134149ed39669 ""
   (generated)
   "sota.aux"
   "sota.log"
