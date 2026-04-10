@@ -150,7 +150,7 @@ class InteractiveRunManager:
             "saved_at": time.time(),
             "generation": int(ga.generation),
             "config": self._normalize_config_dict(asdict(cfg)),
-            "population": [list(ind.chromosome) for ind in ga.population],
+            "population": [[int(gene) for gene in ind.chromosome] for ind in ga.population],
             "best_paper_score_seen": None if best_paper_score_seen == float("inf") else float(best_paper_score_seen),
             "best_gap_seen": None if best_gap_seen == float("inf") else float(best_gap_seen),
         }
