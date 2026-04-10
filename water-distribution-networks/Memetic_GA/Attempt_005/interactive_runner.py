@@ -296,68 +296,78 @@ class InteractiveRunManager:
         run_id = active.run_id
         cfg = active.config
 
-        if cfg.repair_mode not in {"none", "first_generation", "every_generation"}:
-            cfg.repair_mode = "every_generation"
-            self._log(run_id, "Invalid repair_mode in config; defaulting to every_generation", level="warning")
+        try:
+            if cfg.repair_mode not in {"none", "first_generation", "every_generation"}:
+                cfg.repair_mode = "every_generation"
+                self._log(run_id, "Invalid repair_mode in config; defaulting to every_generation", level="warning")
 
-        # Suppress non-critical WNTR warnings about headloss formula and convergence
-        warnings.filterwarnings("ignore", message=".*Changing the headloss formula.*")
-        warnings.filterwarnings("ignore", message=".*Simulation did not converge.*")
-        
-        network_path = self.data_dir / cfg.network_file
-        network = parse_inp_file(str(network_path))
+            # Suppress non-critical WNTR warnings about headloss formula and convergence
+            warnings.filterwarnings("ignore", message=".*Changing the headloss formula.*")
+            warnings.filterwarnings("ignore", message=".*Simulation did not converge.*")
 
-        diameter_options, unit_cost_lookup = self._runner._get_benchmark_cost_spec(cfg.network_file)
-        published_best = self._runner.reference_scores.get(cfg.network_file, {}).get("published_best_universal_score")
+            network_path = self.data_dir / cfg.network_file
+            network = parse_inp_file(str(network_path))
 
-        fitness_score_fn = None
-        if cfg.strict_objective_for_optimization:
-            fitness_score_fn = self._strict_objective_fn(cfg.network_file, str(network_path), network)
+            diameter_options, unit_cost_lookup = self._runner._get_benchmark_cost_spec(cfg.network_file)
+            published_best = self._runner.reference_scores.get(cfg.network_file, {}).get("published_best_universal_score")
 
-        ga = MemeticGA(
-            network=network,
-            population_size=cfg.population_size,
-            max_generations=cfg.max_generations,
-            crossover_rate=0.8,
-            mutation_rate=0.1,
-            local_search_intensity=cfg.local_search_intensity if cfg.algorithm == "memetic" else 0.0,
-            diameter_options=diameter_options,
-            unit_cost_lookup=unit_cost_lookup if unit_cost_lookup else None,
-            fitness_score_fn=fitness_score_fn,
-            benchmark_eval_interval=1,
-            enable_early_stopping=False,
-            seed=cfg.seed,
-        )
+            fitness_score_fn = None
+            if cfg.strict_objective_for_optimization:
+                fitness_score_fn = self._strict_objective_fn(cfg.network_file, str(network_path), network)
 
-        best_paper_score_seen = float("inf")
-        best_gap_seen = float("inf")
+            ga = MemeticGA(
+                network=network,
+                population_size=cfg.population_size,
+                max_generations=cfg.max_generations,
+                crossover_rate=0.8,
+                mutation_rate=0.1,
+                local_search_intensity=cfg.local_search_intensity if cfg.algorithm == "memetic" else 0.0,
+                diameter_options=diameter_options,
+                unit_cost_lookup=unit_cost_lookup if unit_cost_lookup else None,
+                fitness_score_fn=fitness_score_fn,
+                benchmark_eval_interval=1,
+                enable_early_stopping=False,
+                seed=cfg.seed,
+            )
 
-        if resume_state:
-            checkpoint_gen = int(resume_state.get("generation", 0))
-            population_state = resume_state.get("population") or []
-            ga.population = [
-                Individual(list(map(int, chrom)), ga.fitness_evaluator, ga.fitness_score_fn)
-                for chrom in population_state
-            ]
-            ga.generation = checkpoint_gen
-            if not ga.population:
-                raise RuntimeError("Checkpoint is missing population state")
+            best_paper_score_seen = float("inf")
+            best_gap_seen = float("inf")
 
-            seen_score = resume_state.get("best_paper_score_seen")
-            if seen_score is not None:
-                best_paper_score_seen = float(seen_score)
-            seen_gap = resume_state.get("best_gap_seen")
-            if seen_gap is not None:
-                best_gap_seen = float(seen_gap)
+            if resume_state:
+                checkpoint_gen = int(resume_state.get("generation", 0))
+                population_state = resume_state.get("population") or []
+                ga.population = [
+                    Individual(list(map(int, chrom)), ga.fitness_evaluator, ga.fitness_score_fn)
+                    for chrom in population_state
+                ]
+                ga.generation = checkpoint_gen
+                if not ga.population:
+                    raise RuntimeError("Checkpoint is missing population state")
 
+                seen_score = resume_state.get("best_paper_score_seen")
+                if seen_score is not None:
+                    best_paper_score_seen = float(seen_score)
+                seen_gap = resume_state.get("best_gap_seen")
+                if seen_gap is not None:
+                    best_gap_seen = float(seen_gap)
+
+                with active.lock:
+                    active.current_generation = checkpoint_gen
+                self._log(run_id, f"Resumed GA state at generation {checkpoint_gen}")
+            else:
+                ga.initialize_population()
+                init_mean = sum(ind.fitness for ind in ga.population) / max(1, len(ga.population))
+                self._log(run_id, f"Initial population fitness mean={init_mean:.2e}")
+                self._save_checkpoint(run_id, cfg, ga, best_paper_score_seen, best_gap_seen)
+        except Exception as exc:
             with active.lock:
-                active.current_generation = checkpoint_gen
-            self._log(run_id, f"Resumed GA state at generation {checkpoint_gen}")
-        else:
-            ga.initialize_population()
-            init_mean = sum(ind.fitness for ind in ga.population) / max(1, len(ga.population))
-            self._log(run_id, f"Initial population fitness mean={init_mean:.2e}")
-            self._save_checkpoint(run_id, cfg, ga, best_paper_score_seen, best_gap_seen)
+                active.status = "failed"
+                active.ended_at = time.time()
+            self.persistence.append_log(run_id, "error", f"Run failed during startup: {exc}")
+            self.persistence.finalize_run(run_id, "failed", {"error": str(exc)})
+            with self._manager_lock:
+                self._active.pop(run_id, None)
+            return
 
         try:
             remaining_generations = max(0, cfg.max_generations - int(ga.generation))

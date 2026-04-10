@@ -16,6 +16,9 @@ class MemeticUI:
         self.root = root
         self.root.title("WDN Strict Benchmark Runner (Attempt_005)")
         self.root.geometry("1250x860")
+        self._closing = False
+        self._refresh_after_id: Optional[str] = None
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         base_dir = Path(__file__).resolve().parents[2]
         self.manager = InteractiveRunManager(base_dir)
@@ -38,7 +41,7 @@ class MemeticUI:
         self.seed_var = tk.IntVar(value=42)
         self.strict_obj_var = tk.BooleanVar(value=True)
         self.full_pop_var = tk.BooleanVar(value=True)
-        self.repair_mode_var = tk.StringVar(value="every_generation")
+        self.repair_mode_var = tk.StringVar(value="first_generation")
 
         row0 = ttk.Frame(control)
         row0.pack(fill="x", padx=6, pady=4)
@@ -412,6 +415,8 @@ class MemeticUI:
                 )
 
     def _refresh_loop(self) -> None:
+        if self._closing:
+            return
         try:
             self._refresh_history()
             if self.selected_run_id:
@@ -421,7 +426,25 @@ class MemeticUI:
             # Keep UI alive even if one refresh cycle fails.
             self.status_var.set(f"UI refresh warning: {exc}")
         finally:
-            self.root.after(1200, self._refresh_loop)
+            if not self._closing:
+                self._refresh_after_id = self.root.after(1200, self._refresh_loop)
+
+    def _on_close(self) -> None:
+        self._closing = True
+        if self._refresh_after_id:
+            try:
+                self.root.after_cancel(self._refresh_after_id)
+            except Exception:
+                pass
+
+        # Request stop for active runs so worker threads can exit cleanly.
+        try:
+            for run_id in self.manager.get_active_run_ids():
+                self.manager.stop_run(run_id)
+        except Exception:
+            pass
+
+        self.root.destroy()
 
 
 def main() -> None:
