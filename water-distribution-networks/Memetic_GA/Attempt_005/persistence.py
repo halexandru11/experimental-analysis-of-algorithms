@@ -321,7 +321,7 @@ class RunPersistence:
                 FROM runs
                 WHERE network_file = ?
                   AND algorithm = ?
-                  AND status IN ('completed', 'stopped')
+                  AND status IN ('completed', 'stopped', 'running')
                 ORDER BY started_at DESC
                 LIMIT 1
                 """,
@@ -343,7 +343,7 @@ class RunPersistence:
                 SELECT run_id, algorithm, network_file, status, started_at, ended_at, config_json, summary_json
                 FROM runs
                 WHERE network_file = ?
-                  AND status IN ('completed', 'stopped')
+                  AND status IN ('completed', 'stopped', 'running')
                 ORDER BY started_at DESC
                 LIMIT 1
                 """,
@@ -357,3 +357,63 @@ class RunPersistence:
         result["config"] = json.loads(result.pop("config_json") or "{}")
         result["summary"] = json.loads(result.pop("summary_json") or "{}")
         return result
+
+    def export_live_results_csv(self, output_path: Path) -> None:
+        """
+        Export live results table: current generation and best scores for each active/recent run.
+        Updates at every generation so graphs can be generated without stopping.
+        
+        Formats as CSV with columns:
+        network_file, algorithm, generation, status, best_paper_score, best_paper_cost, feasible_count, gap_to_published_pct
+        """
+        import csv
+        
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with self._lock:
+            with self._connect() as conn:
+                # Get all runs (active or recently stopped)
+                runs = conn.execute(
+                    """
+                    SELECT run_id, algorithm, network_file, status
+                    FROM runs
+                    ORDER BY started_at DESC
+                    """
+                ).fetchall()
+                
+                rows = []
+                for run in runs:
+                    run_id = run['run_id']
+                    
+                    # Get latest generation for this run
+                    latest_gen = conn.execute(
+                        """
+                        SELECT generation, best_paper_score, best_paper_cost, feasible_count, gap_to_published_pct
+                        FROM generations
+                        WHERE run_id = ?
+                        ORDER BY generation DESC
+                        LIMIT 1
+                        """,
+                        (run_id,)
+                    ).fetchone()
+                    
+                    if latest_gen:
+                        rows.append({
+                            'network_file': run['network_file'],
+                            'algorithm': run['algorithm'],
+                            'status': run['status'],
+                            'generation': latest_gen['generation'],
+                            'best_paper_score': latest_gen['best_paper_score'],
+                            'best_paper_cost': latest_gen['best_paper_cost'],
+                            'feasible_count': latest_gen['feasible_count'],
+                            'gap_to_published_pct': latest_gen['gap_to_published_pct'],
+                        })
+        
+        # Write CSV
+        if rows:
+            with open(output_path, 'w', newline='') as f:
+                fieldnames = ['network_file', 'algorithm', 'status', 'generation', 'best_paper_score', 'best_paper_cost', 'feasible_count', 'gap_to_published_pct']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow(row)

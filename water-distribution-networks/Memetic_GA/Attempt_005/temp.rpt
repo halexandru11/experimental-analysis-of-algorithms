@@ -1,4 +1,4 @@
-  Page 1                                    Fri Apr 10 12:09:48 2026
+  Page 1                                    Fri Apr 10 13:01:37 2026
 
   ******************************************************************
   *                           E P A N E T                          *
@@ -7,6 +7,6 @@
   *                         Version 2.2                            *
   ******************************************************************
   
-  Analysis begun Fri Apr 10 12:09:48 2026
-
-  Analysis ended Fri Apr 10 12:09:48 2026
+  Error 224: no tanks or reservoirs in network WARNING: Negative pressures at 0:00:00 hrs.
+   
+  Analysis ended Fri Apr 10 13:02:11 2026

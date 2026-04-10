@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 from pathlib import Path
 from typing import Optional
 import os
+import time
 import warnings
 
 # Suppress Tkinter cleanup warnings from background threads (harmless)
@@ -371,6 +372,8 @@ class MemeticUI:
             if self.last_displayed_log_count == 0:
                 # First load, insert all at once
                 self.log_text.insert(tk.END, "\n".join(all_logs))
+                # Auto-scroll to end on first load
+                self.log_text.see(tk.END)
             else:
                 # Append only new ones
                 self.log_text.insert(tk.END, "\n" + "\n".join(new_logs))

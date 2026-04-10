@@ -234,15 +234,10 @@ class MemeticGA:
                         self.feasibility_checkpoint_history.append((self.generation, repaired_cost))
                         print(f"  [Checkpoint Gen {self.generation}] Improved via repair: cost={repaired_cost:.2e}")
                 
-                # Optional re-injection: replace worst individual in population with this feasible solution
-                worst_idx = np.argmax([ind.fitness for ind in self.population])
-                if repaired_individual.fitness < self.population[worst_idx].fitness:
-                    print(
-                        f"    -> Re-injecting feasible individual "
-                        f"(minimization: replacing worse fitness {self.population[worst_idx].fitness:.2e} "
-                        f"with better/lower {repaired_individual.fitness:.2e})"
-                    )
-                    self.population[worst_idx] = repaired_individual
+                # NOTE: We do NOT re-inject repaired solutions back into population.
+                # We track them as best_feasible to preserve through elitism,
+                # but allow SOTA selection to decide their fitness naturally.
+                # This keeps the algorithm pure to the SOTA evaluation approach.
             else:
                 print(f"  [Checkpoint Gen {self.generation}] Best individual infeasible; repair also failed")
 
@@ -415,8 +410,14 @@ class MemeticGA:
         new_population = []
         
         # Elitism: keep best individual
+        # Priority: prefer best_feasible_individual if it exists (never lose feasibility once found)
         best_idx = np.argmin(fitnesses)
         best_individual = self.population[best_idx].copy()
+        
+        if self.best_feasible_individual is not None:
+            # We have a known feasible solution; prefer it over potentially infeasible candidates
+            best_individual = self.best_feasible_individual.copy()
+        
         new_population.append(best_individual)
         
         # Generate offspring through crossover and mutation

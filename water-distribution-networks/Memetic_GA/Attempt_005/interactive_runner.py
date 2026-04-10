@@ -312,6 +312,36 @@ class InteractiveRunManager:
             if cfg.strict_objective_for_optimization:
                 fitness_score_fn = self._strict_objective_fn(cfg.network_file, str(network_path), network)
 
+            # Set up periodic feasibility checkpoints for large networks
+            # (prevents population from drifting infeasible)
+            feasibility_checkpoint_interval = None
+            feasibility_check_fn = None
+            repair_fn = None
+            
+            if network.get_pipe_count() > 100:
+                # MORE AGGRESSIVE: check every 5-10 generations for quick recovery
+                feasibility_checkpoint_interval = max(5, cfg.max_generations // 30)
+                if feasibility_checkpoint_interval > 15:
+                    feasibility_checkpoint_interval = 15
+                
+                def check_feasibility(diameters: list) -> bool:
+                    """Check if solution is hydraulically feasible under paper constraints."""
+                    result = self._runner._evaluate_paper_score(
+                        cfg.network_file, str(network_path), network, diameters
+                    )
+                    return result.get('paper_feasible', 0.0) > 0.5
+                
+                def repair_solution(diameters: list) -> list:
+                    """Repair infeasible solution using targeted greedy upsizing."""
+                    repair_result = self._runner._repair_to_paper_feasible(
+                        cfg.network_file, str(network_path), network, diameters
+                    )
+                    return repair_result.get('repaired_diameters', diameters)
+                
+                feasibility_check_fn = check_feasibility
+                repair_fn = repair_solution
+                self._log(run_id, f"Feasibility checkpoints enabled: every {feasibility_checkpoint_interval} generations (aggressive mode)")
+
             ga = MemeticGA(
                 network=network,
                 population_size=cfg.population_size,
@@ -324,6 +354,9 @@ class InteractiveRunManager:
                 fitness_score_fn=fitness_score_fn,
                 benchmark_eval_interval=1,
                 enable_early_stopping=False,
+                feasibility_checkpoint_interval=feasibility_checkpoint_interval,
+                feasibility_check_fn=feasibility_check_fn,
+                repair_fn=repair_fn,
                 seed=cfg.seed,
             )
 
@@ -500,6 +533,14 @@ class InteractiveRunManager:
                     active.best_gap_to_published_pct = gap_pct
 
                 self._save_checkpoint(run_id, cfg, ga, best_paper_score_seen, best_gap_seen)
+                
+                # Export live results CSV every 5 generations (for graph generation without stopping)
+                if generation % 5 == 0:
+                    try:
+                        results_csv = self.checkpoints_dir.parent / "live_results.csv"
+                        self.persistence.export_live_results_csv(results_csv)
+                    except Exception as e:
+                        self._log(run_id, f"Warning: Failed to export live results: {e}", level="warning")
 
             with active.lock:
                 if active.status == "running":
