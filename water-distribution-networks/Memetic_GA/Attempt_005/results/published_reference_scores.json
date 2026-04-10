@@ -1,0 +1,90 @@
+{
+  "TLN.inp": {
+    "published_best_universal_score": 419000,
+    "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
+    "published_best_source": "Siew, C., & Tanyimboh, T. T. (2012). Penalty-Free Feasibility Boundary Convergent Multi-Objective Evolutionary Algorithm for the Optimization of Water Distribution Systems. https://strathprints.strath.ac.uk/43222/1/Siew_Tanyimboh_PFMOEA.pdf",
+    "benchmark_name": "Two-Loop Network (TLN)",
+    "objective_type": "minimize total pipe cost",
+    "diameter_set": [
+      {"diameter_m": 0.0254, "unit_cost_per_m": 2.0},
+      {"diameter_m": 0.0508, "unit_cost_per_m": 5.0},
+      {"diameter_m": 0.0762, "unit_cost_per_m": 8.0},
+      {"diameter_m": 0.1016, "unit_cost_per_m": 11.0},
+      {"diameter_m": 0.1524, "unit_cost_per_m": 16.0},
+      {"diameter_m": 0.2032, "unit_cost_per_m": 23.0},
+      {"diameter_m": 0.2540, "unit_cost_per_m": 32.0},
+      {"diameter_m": 0.3048, "unit_cost_per_m": 50.0},
+      {"diameter_m": 0.3556, "unit_cost_per_m": 60.0},
+      {"diameter_m": 0.4064, "unit_cost_per_m": 90.0},
+      {"diameter_m": 0.4572, "unit_cost_per_m": 130.0},
+      {"diameter_m": 0.5080, "unit_cost_per_m": 170.0},
+      {"diameter_m": 0.5588, "unit_cost_per_m": 300.0},
+      {"diameter_m": 0.6096, "unit_cost_per_m": 550.0}
+    ],
+    "cost_definition": "sum(unit_cost(d_i) * pipe_length_i)",
+    "constraints": "minimum pressure head >= 30m above elevation at demand nodes",
+    "simulation_assumptions": "Hazen-Williams, typically C=130, EPANET-style hydraulic feasibility",
+    "units": "USD for cost, meters for lengths/heads",
+    "replicable_apples_to_apples": true,
+    "confidence": "High",
+    "notes": "Best value 419000 confirmed in Siew & Tanyimboh (2012), Section 5.1/Table 1; Exeter link retained for benchmark data/spec context."
+  },
+  "hanoi.inp": {
+    "published_best_universal_score": 6081000,
+    "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
+    "published_best_source": "Secondary citation from review/summary material: Lim, S. H., Lee, C. W., Hong, S. J., & Yoo, D. G. (2020), Journal of the Korea Academia-Industrial cooperation Society, 21(5), 295-303; and user-provided benchmark summary (H527) reporting Hanoi global optimum = $6.081M.",
+    "published_best_source_links": [
+      "https://chijournal.org/Content/Files/H527.pdf",
+      "https://www.kais99.org/jkais/journal/Vol21No05/vol21no05p33.pdf"
+    ],
+    "source_reliability": "Medium (derived from secondary summary sources; primary Fujiwara & Khang table/page still recommended)",
+    "benchmark_name": "Hanoi Network",
+    "objective_type": "minimize total pipe cost",
+    "diameter_set": [
+      {"diameter_m": 0.3048, "unit_cost_per_m": 45.726},
+      {"diameter_m": 0.4064, "unit_cost_per_m": 70.4},
+      {"diameter_m": 0.5080, "unit_cost_per_m": 98.378},
+      {"diameter_m": 0.6096, "unit_cost_per_m": 129.33},
+      {"diameter_m": 0.7620, "unit_cost_per_m": 180.748},
+      {"diameter_m": 1.0160, "unit_cost_per_m": 278.28}
+    ],
+    "cost_definition": "sum(unit_cost(d_i) * pipe_length_i)",
+    "constraints": "minimum surplus head >= 30m at demand nodes",
+    "simulation_assumptions": "Hazen-Williams, commonly C=130, EPANET-style hydraulic feasibility",
+    "units": "USD for cost, meters for lengths/heads",
+    "replicable_apples_to_apples": true,
+    "confidence": "High",
+    "notes": "Method (34 pipes, 32 nodes, 3 loops, diameter set, unit costs, min head 30m) verified. Best value 6.081M is currently supported by secondary sources; add primary Fujiwara & Khang page/table citation when available."
+  },
+  "BIN.inp": {
+    "published_best_universal_score": 1956000,
+    "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
+    "published_best_source": "Secondary citation from BN case-study reporting best solution = €1.956M and attributing cost basis to Reca & Martínez (2006).",
+    "published_best_source_links": [
+      "https://chijournal.org/Content/Files/H527.pdf"
+    ],
+    "method_verification_source": "User-provided image source (secondary): https://www.scribd.com/document/451599822/FZ-AS-AZ-NLP-DELoopedwatersystems",
+    "source_reliability": "Medium (best value and method verified from secondary summaries/images; primary Reca & Martínez table/appendix still recommended)",
+    "benchmark_name": "Balerma Irrigation Network",
+    "objective_type": "minimize total pipe cost",
+    "diameter_set": [
+      {"diameter_m": 0.1130, "unit_cost_per_m": 7.22},
+      {"diameter_m": 0.1266, "unit_cost_per_m": 9.10},
+      {"diameter_m": 0.1446, "unit_cost_per_m": 11.92},
+      {"diameter_m": 0.1628, "unit_cost_per_m": 14.84},
+      {"diameter_m": 0.1808, "unit_cost_per_m": 18.38},
+      {"diameter_m": 0.2262, "unit_cost_per_m": 28.60},
+      {"diameter_m": 0.2850, "unit_cost_per_m": 45.39},
+      {"diameter_m": 0.3618, "unit_cost_per_m": 76.32},
+      {"diameter_m": 0.4522, "unit_cost_per_m": 124.64},
+      {"diameter_m": 0.5818, "unit_cost_per_m": 215.85}
+    ],
+    "cost_definition": "sum(unit_cost(d_i) * pipe_length_i)",
+    "constraints": "minimum pressure head >= 20m at demand nodes",
+    "simulation_assumptions": "Darcy-Weisbach with roughness epsilon = 0.0025mm (Moody/Colebrook model), EPANET hydraulic feasibility",
+    "units": "EUR for cost, meters for lengths/heads",
+    "replicable_apples_to_apples": true,
+    "confidence": "High",
+    "notes": "Method (454 pipes, 443 nodes, DW roughness 0.0025mm, min head 20m) verified via user-provided secondary sources. Keep €1.956M as current working reference; H527 summaries may round to €1.94M. Replace with primary Reca & Martínez citation once obtained."
+  }
+}
