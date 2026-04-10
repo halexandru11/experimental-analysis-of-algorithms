@@ -9,7 +9,7 @@ import numpy as np
 @dataclass(slots=True)
 class DifferentialEvolutionConfig:
     population_size: int = 20
-    generations: int = 60
+    generations: int = 150
     mutation_factor: float = 0.8
     crossover_rate: float = 0.9
 

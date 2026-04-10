@@ -1,0 +1,9 @@
+runs: 12
+min_cost: 4.37000000e+05
+median_cost: 4.48500000e+05
+mean_cost: 4.49916667e+05
+std_cost: 9.68089340e+03
+max_cost: 4.63000000e+05
+published_best_cost: 4.19000000e+05
+best_run_effectiveness_pct: 95.88100686
+median_run_effectiveness_pct: 93.42356450
