@@ -1,5 +1,10 @@
 # Fdb version 4
-["pdflatex"] 1775748132.22893 "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" "sota.pdf" "sota" 1775748134.67489 0
+["pdflatex"] 1775896653.0556 "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" "sota.pdf" "sota" 1775896654.98752 0
+  "../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png" 1775896087 77845 957da455e5eb6433ca87a27fe5706b1c ""
+  "../Memetic_GA/Attempt_005/images/Browser_Replay.png" 1775896196 225464 72d24c894164910ede3b644356c24229 ""
+  "../Memetic_GA/Attempt_005/images/Convergence_Curves.png" 1775896106 135109 1b209e2e82bad7db4e2f52c79ab4eb52 ""
+  "../Memetic_GA/Attempt_005/images/Run-history_table_and_logs_panel_screenshot.png" 1775896002 39549 7b707c79871ebf4a876060213892d713 ""
+  "../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png" 1775896475 154530 1d1564116721e2d649f8a2affe745c41 ""
   "C:/Users/mihai/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map" 1775204942 82507 a9eef8696c92627b87e9975edea03b2a ""
   "C:/Users/mihai/AppData/Local/MiKTeX/fonts/pk/ljfour/jknappen/ec/dpi600/tcrm1200.pk" 1764853372 14064 d71d15c06e1d92aeba80b539ef839f61 ""
   "C:/Users/mihai/AppData/Local/MiKTeX/miktex/data/le/pdftex/pdflatex.fmt" 1764853280 24225046 15b5171b9dc161ae83d54045812a2cce ""
@@ -199,10 +204,10 @@
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/rerunfilecheck/rerunfilecheck.sty" 1751104012 9684 a33a14b82ce60d6e77cb9be689d79ee6 ""
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/url/url.sty" 1388490452 12796 8edb7d69a20b857904dd0ea757c14ec9 ""
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/xcolor/xcolor.sty" 1700127522 55487 80a65caedd3722f4c20a14a69e785d8f ""
-  "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" 1775748131 46453 2d8abd73d9050b0e4f5134149ed39669 ""
-  "sota.aux" 1775748134 3091 470229a253cf834cac2ffa7efd309aa1 "pdflatex"
-  "sota.out" 1775748134 1397 c4b27038a360fe7a7b9a37ea50b91e1d "pdflatex"
-  "sota.tex" 1775748131 46453 2d8abd73d9050b0e4f5134149ed39669 ""
+  "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" 1775896652 46080 2c1725ad0bc7ccac2158bb9e1b699bae ""
+  "sota.aux" 1775896654 5611 6787be01359a36f21b734a18f13ec008 "pdflatex"
+  "sota.out" 1775896654 4602 055a85ed555f7aa0de0998edbf70f12d "pdflatex"
+  "sota.tex" 1775896652 46080 2c1725ad0bc7ccac2158bb9e1b699bae ""
   (generated)
   "sota.aux"
   "sota.log"
