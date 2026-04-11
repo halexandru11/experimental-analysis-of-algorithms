@@ -693,6 +693,8 @@ This helps explain results to non-specialists because optimization history becom
 
 The strict benchmark result is \textbf{hydraulic feasibility under benchmark assumptions}, not a full real-world engineering sign-off. Real deployment still needs calibration against measured data, operational constraints, reliability/transient checks, and constructability review.
 
+A current practical limitation is per-generation runtime: a single generation can be relatively slow, which limits the total number of generations that can be explored under fixed compute time.
+
 \subsection{Summary}
 
 The implemented system provides a practical, reproducible, and transparent framework for GA-based WDN optimization research:
@@ -708,6 +710,7 @@ The implemented system provides a practical, reproducible, and transparent frame
 
 The most relevant next steps, based on the observed results, are:
 \begin{itemize}
+    \item \textbf{Faster generation cycle:} reduce per-generation runtime so we can run more generations within the same compute budget.
     \item \textbf{Strengthen large-network search (BIN):} adaptive diversification and restart policies tuned for very large design spaces.
     \item \textbf{Increase statistical robustness:} balanced run counts for both algorithms on each benchmark (not only one Standard GA run).
     \item \textbf{Budget-normalized benchmarking:} compare algorithms at equal evaluation budgets (objective calls/time), not only equal generation counts.
