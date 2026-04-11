@@ -1,0 +1,23 @@
+{
+  "instance": "BIN.inp",
+  "experiment_config": {
+    "population_size": 50,
+    "generations": 3000,
+    "mutation_factor": 0.5,
+    "crossover_rate": 0.8
+  },
+  "runs": 15,
+  "published_best_cost": 1956000.0,
+  "best_cost_min": 2267457.71,
+  "best_cost_max": 2577440.238,
+  "best_cost_mean": 2414465.208533333,
+  "best_cost_median": 2424084.09,
+  "best_cost_stdev": 90304.1151057509,
+  "run_time_seconds_min": 9344.290061668995,
+  "run_time_seconds_max": 9744.026658068004,
+  "run_time_seconds_mean": 9577.132917422936,
+  "run_time_seconds_median": 9577.921928143995,
+  "run_time_seconds_stdev": 103.6282306318458,
+  "best_run_distance_from_published_best_pct": 15.923195807770952,
+  "median_run_distance_from_published_best_pct": 23.930679447852743
+}

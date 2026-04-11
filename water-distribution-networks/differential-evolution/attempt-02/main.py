@@ -275,10 +275,20 @@ def _build_progress_line(
 
 
 def main() -> None:
+    config = DifferentialEvolutionConfig(
+        generations=12000,
+        population_size=50,
+        mutation_factor=0.65,
+        crossover_rate=0.85,
+    )
+    runs = 3
+
     base_dir = Path(__file__).resolve().parents[2]
     data_dir = base_dir / "data"
 
-    instance_name = os.environ.get("WDN_INSTANCE", "TLN.inp")
+    # instance_name = os.environ.get("WDN_INSTANCE", "TLN.inp")
+    # instance_name = os.environ.get("WDN_INSTANCE", "HAN.inp")
+    instance_name = os.environ.get("WDN_INSTANCE", "BIN.inp")
     preferred_instance_path = data_dir / instance_name
     if preferred_instance_path.exists():
         instance_path = preferred_instance_path
@@ -320,14 +330,6 @@ def main() -> None:
 
     # Note: per-run work is executed in separate processes using
     # _run_single_experiment_worker defined above.
-
-    config = DifferentialEvolutionConfig(
-        population_size=20,
-        generations=60,
-        mutation_factor=0.5,
-        crossover_rate=0.8,
-    )
-    runs = 12
 
     instance_run_id = f"{config.generations}-{config.population_size}-{int(config.mutation_factor * 100)}-{int(config.crossover_rate * 100)}"
     results_dir = (
@@ -444,7 +446,8 @@ def main() -> None:
                 break
         _render_progress()
 
-    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    # max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    max_workers = 2
     progress_thread = (
         threading.Thread(target=_progress_renderer_worker, daemon=True)
         if progress_enabled
@@ -482,7 +485,7 @@ def main() -> None:
                     progress_state,
                     progress_lock,
                 ): run_id
-                for run_id in range(1, runs + 1)
+                for run_id in [4, 12, 14]
             }
             for future in as_completed(futures):
                 run_payload = future.result()

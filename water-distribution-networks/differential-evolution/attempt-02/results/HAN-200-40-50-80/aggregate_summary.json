@@ -13,11 +13,11 @@
   "best_cost_mean": 6351641.992222222,
   "best_cost_median": 6351621.279999999,
   "best_cost_stdev": 106137.01481572306,
-  "run_time_seconds_min": 275.80310549399655,
-  "run_time_seconds_max": 308.5890610869974,
-  "run_time_seconds_mean": 290.9205943296108,
-  "run_time_seconds_median": 290.02967760950014,
-  "run_time_seconds_stdev": 10.891537802092694,
+  "run_time_seconds_min": 131.5600201470006,
+  "run_time_seconds_max": 151.8250557680003,
+  "run_time_seconds_mean": 140.3411422727792,
+  "run_time_seconds_median": 138.6341670000038,
+  "run_time_seconds_stdev": 5.694676547128064,
   "best_run_distance_from_published_best_pct": 1.425109357013632,
   "median_run_distance_from_published_best_pct": 4.450275941456994
 }
