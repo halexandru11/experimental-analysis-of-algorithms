@@ -1,9 +1,8 @@
 # Fdb version 4
-["pdflatex"] 1775912525.58603 "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" "sota.pdf" "sota" 1775912528.36908 0
+["pdflatex"] 1775913245.91015 "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" "sota.pdf" "sota" 1775913247.55964 0
   "../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png" 1775896087 77845 957da455e5eb6433ca87a27fe5706b1c ""
   "../Memetic_GA/Attempt_005/images/Browser_Replay.png" 1775896196 225464 72d24c894164910ede3b644356c24229 ""
   "../Memetic_GA/Attempt_005/images/Convergence_Curves.png" 1775896106 135109 1b209e2e82bad7db4e2f52c79ab4eb52 ""
-  "../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png" 1775896475 154530 1d1564116721e2d649f8a2affe745c41 ""
   "C:/Users/mihai/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map" 1775204942 82507 a9eef8696c92627b87e9975edea03b2a ""
   "C:/Users/mihai/AppData/Local/MiKTeX/fonts/pk/ljfour/jknappen/ec/dpi600/tcrm1200.pk" 1764853372 14064 d71d15c06e1d92aeba80b539ef839f61 ""
   "C:/Users/mihai/AppData/Local/MiKTeX/miktex/data/le/pdftex/pdflatex.fmt" 1764853280 24225046 15b5171b9dc161ae83d54045812a2cce ""
@@ -203,10 +202,10 @@
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/rerunfilecheck/rerunfilecheck.sty" 1751104012 9684 a33a14b82ce60d6e77cb9be689d79ee6 ""
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/url/url.sty" 1388490452 12796 8edb7d69a20b857904dd0ea757c14ec9 ""
   "C:/Users/mihai/AppData/Local/Programs/MiKTeX/tex/latex/xcolor/xcolor.sty" 1700127522 55487 80a65caedd3722f4c20a14a69e785d8f ""
-  "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" 1775912521 48565 22f5968d231a52eb11ac36b743158ac4 ""
-  "sota.aux" 1775912528 6072 17b7c79edbffd2070f995f365456a33a "pdflatex"
-  "sota.out" 1775912528 4417 3f7269f94f66c276f49f5ce4e043dcdd "pdflatex"
-  "sota.tex" 1775912521 48565 22f5968d231a52eb11ac36b743158ac4 ""
+  "c:/experimental-analysis-of-algorithms/water-distribution-networks/SOTA/sota.tex" 1775913243 48342 a1baab58b3f914c7b8aeb54c086425da ""
+  "sota.aux" 1775913247 5900 220329a2c9c1a3e6da9da3b6abc127ed "pdflatex"
+  "sota.out" 1775913247 4417 3f7269f94f66c276f49f5ce4e043dcdd "pdflatex"
+  "sota.tex" 1775913243 48342 a1baab58b3f914c7b8aeb54c086425da ""
   (generated)
   "sota.aux"
   "sota.log"

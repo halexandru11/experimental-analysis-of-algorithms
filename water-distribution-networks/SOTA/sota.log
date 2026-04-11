@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (MiKTeX 24.1) (preloaded format=pdflatex 2025.12.4)  11 APR 2026 16:02
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (MiKTeX 24.1) (preloaded format=pdflatex 2025.12.4)  11 APR 2026 16:14
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -639,63 +639,53 @@ Overfull \hbox (35.4413pt too wide) in paragraph at lines 422--423
 []\OT1/cmr/bx/n/12 Experiment op-er-a-tions layer: \OT1/cmr/m/n/12 lightweight con-trols are used only to launch/stop/resume
  []
 
-<../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png, id=225, 1444.64719pt x 812.28468pt>
-File: ../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png Graphic file (type png)
-<use ../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png>
-Package pdftex.def Info: ../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png  used on input line 427.
-(pdftex.def)             Requested size: 443.9066pt x 249.59944pt.
-[13
-pdfTeX warning (ext4): destination with the same identifier (name{figure.6}) has been already used, duplicate ignored
-<argument> ...shipout:D \box_use:N \l_shipout_box 
-                                                  \__shipout_drop_firstpage_...
-l.454     \item \textbf
-                       {Individual:} chromosome, lazy cached fitness value (... <../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png>] [14]
-Overfull \hbox (25.7422pt too wide) in paragraph at lines 541--542
+[13] [14]
+Overfull \hbox (25.7422pt too wide) in paragraph at lines 535--536
 []\OT1/cmr/m/n/12 compute pres-sure short-fall ver-sus re-quired min-i-mum head (i.e., short-fall = $[](0\OML/cmm/m/it/12 ;  H[] \OMS/cmsy/m/n/12 ^^@
  []
 
 [15] [16]
-<../Memetic_GA/Attempt_005/images/Convergence_Curves.png, id=254, 1072.75781pt x 357.58594pt>
+<../Memetic_GA/Attempt_005/images/Convergence_Curves.png, id=250, 1072.75781pt x 357.58594pt>
 File: ../Memetic_GA/Attempt_005/images/Convergence_Curves.png Graphic file (type png)
 <use ../Memetic_GA/Attempt_005/images/Convergence_Curves.png>
-Package pdftex.def Info: ../Memetic_GA/Attempt_005/images/Convergence_Curves.png  used on input line 618.
+Package pdftex.def Info: ../Memetic_GA/Attempt_005/images/Convergence_Curves.png  used on input line 612.
 (pdftex.def)             Requested size: 443.9066pt x 147.96434pt.
-<../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png, id=255, 1072.005pt x 402.00188pt>
+<../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png, id=252, 1072.005pt x 402.00188pt>
 File: ../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png Graphic file (type png)
 <use ../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png>
-Package pdftex.def Info: ../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png  used on input line 624.
+Package pdftex.def Info: ../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png  used on input line 618.
 (pdftex.def)             Requested size: 443.9066pt x 166.45963pt.
  [17
+pdfTeX warning (ext4): destination with the same identifier (name{figure.6}) has been already used, duplicate ignored
+<argument> ...shipout:D \box_use:N \l_shipout_box 
+                                                  \__shipout_drop_firstpage_...
+l.621 
+       <../Memetic_GA/Attempt_005/images/Convergence_Curves.png>] [18
 pdfTeX warning (ext4): destination with the same identifier (name{figure.7}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.627 
-       <../Memetic_GA/Attempt_005/images/Convergence_Curves.png>] [18
-pdfTeX warning (ext4): destination with the same identifier (name{figure.8}) has been already used, duplicate ignored
-<argument> ...shipout:D \box_use:N \l_shipout_box 
-                                                  \__shipout_drop_firstpage_...
-l.676 
+l.670 
       
 pdfTeX warning (ext4): destination with the same identifier (name{table.1}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.676 
+l.670 
        <../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png>]
-<../Memetic_GA/Attempt_005/images/Browser_Replay.png, id=273, 1407.75937pt x 686.565pt>
+<../Memetic_GA/Attempt_005/images/Browser_Replay.png, id=270, 1407.75937pt x 686.565pt>
 File: ../Memetic_GA/Attempt_005/images/Browser_Replay.png Graphic file (type png)
 <use ../Memetic_GA/Attempt_005/images/Browser_Replay.png>
-Package pdftex.def Info: ../Memetic_GA/Attempt_005/images/Browser_Replay.png  used on input line 694.
+Package pdftex.def Info: ../Memetic_GA/Attempt_005/images/Browser_Replay.png  used on input line 688.
 (pdftex.def)             Requested size: 443.9066pt x 216.48912pt.
  [19
 pdfTeX warning (ext4): destination with the same identifier (name{table.2}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.701 
+l.695 
       
-pdfTeX warning (ext4): destination with the same identifier (name{figure.9}) has been already used, duplicate ignored
+pdfTeX warning (ext4): destination with the same identifier (name{figure.8}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.701 
+l.695 
        <../Memetic_GA/Attempt_005/images/Browser_Replay.png>] [20] [21] (sota.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
@@ -705,17 +695,17 @@ Package rerunfilecheck Info: File `sota.out' has not changed.
 (rerunfilecheck)             Checksum: 3F7269F94F66C276F49F5CE4E043DCDD;4417.
  ) 
 Here is how much of TeX's memory you used:
- 31279 strings out of 474486
- 742137 string characters out of 5743755
+ 31271 strings out of 474486
+ 741647 string characters out of 5743755
  1948542 words of memory out of 5000000
- 52982 multiletter control sequences out of 15000+600000
+ 52975 multiletter control sequences out of 15000+600000
  567959 words of font info for 74 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  99i,11n,107p,823b,2336s stack positions out of 10000i,1000n,20000p,200000b,200000s
  <C:\Users\mihai\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec/dpi600\tcrm1200.pk><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmbx12.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmex10.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi12.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr17.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.pfb><C:/Users/mihai/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt12.pfb>
-Output written on sota.pdf (21 pages, 718583 bytes).
+Output written on sota.pdf (21 pages, 605749 bytes).
 PDF statistics:
- 412 PDF objects out of 1000 (max. 8388607)
- 110 named destinations out of 1000 (max. 500000)
- 209 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 409 PDF objects out of 1000 (max. 8388607)
+ 109 named destinations out of 1000 (max. 500000)
+ 204 words of extra memory for PDF output out of 10000 (max. 10000000)
 
