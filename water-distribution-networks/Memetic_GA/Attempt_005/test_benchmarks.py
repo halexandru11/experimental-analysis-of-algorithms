@@ -184,14 +184,20 @@ class BenchmarkRunner:
 
             min_head = self._get_min_head_requirement(network_file)
             pressure_ts = results.node['pressure']
-            final_pressure = pressure_ts.iloc[-1]
 
-            junction_names = [j for j in network.junctions.keys() if j in final_pressure.index]
-            junction_pressures = final_pressure.loc[junction_names]
+            junction_names = [j for j in network.junctions.keys() if j in pressure_ts.columns]
+            if not junction_names:
+                raise RuntimeError("No junction pressure results available for strict evaluation")
 
-            shortfalls = np.maximum(0.0, min_head - junction_pressures.values)
-            total_violation = float(np.sum(shortfalls))
-            min_pressure = float(np.min(junction_pressures.values)) if len(junction_pressures.values) > 0 else float('-inf')
+            junction_pressures_ts = pressure_ts.loc[:, junction_names]
+            pressure_matrix = junction_pressures_ts.to_numpy(dtype=float)
+
+            # Strict feasibility over the whole simulation horizon:
+            # every demand node must satisfy the minimum pressure at all report timesteps.
+            shortfall_matrix = np.maximum(0.0, min_head - pressure_matrix)
+            node_worst_shortfalls = np.max(shortfall_matrix, axis=0)
+            total_violation = float(np.sum(node_worst_shortfalls))
+            min_pressure = float(np.min(pressure_matrix)) if pressure_matrix.size > 0 else float('-inf')
             feasible = 1.0 if total_violation <= 1e-9 else 0.0
             score = cost if feasible > 0 else float('inf')
 
@@ -206,16 +212,29 @@ class BenchmarkRunner:
             }
 
             if return_diagnostics:
+                # Use per-node worst shortfall across all timesteps for diagnostics.
                 deficits = {
-                    node: float(max(0.0, min_head - p))
-                    for node, p in junction_pressures.items()
+                    node: float(node_worst_shortfalls[i])
+                    for i, node in enumerate(junction_names)
                 }
+
+                # Pick the timestep with highest aggregate shortfall to inspect headloss there.
+                timestep_shortfalls = np.sum(shortfall_matrix, axis=1)
+                worst_timestep_idx = int(np.argmax(timestep_shortfalls)) if len(timestep_shortfalls) else -1
+                if worst_timestep_idx >= 0:
+                    headloss_series = results.link['headloss'].iloc[worst_timestep_idx]
+                else:
+                    headloss_series = results.link['headloss'].iloc[-1]
+
                 result['paper_diagnostics'] = {
-                    'junction_pressures': {node: float(p) for node, p in junction_pressures.items()},
+                    'junction_pressures': {
+                        node: float(np.min(junction_pressures_ts[node].to_numpy(dtype=float)))
+                        for node in junction_names
+                    },
                     'junction_deficits': deficits,
                     'link_headloss_abs': {
                         link: float(abs(v))
-                        for link, v in results.link['headloss'].iloc[-1].items()
+                        for link, v in headloss_series.items()
                     }
                 }
 

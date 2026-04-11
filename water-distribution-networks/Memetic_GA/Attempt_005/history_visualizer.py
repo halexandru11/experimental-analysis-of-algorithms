@@ -59,12 +59,33 @@ class HistoryVisualizer:
             return None
         return float(min(finite))
 
-    def _last_finite_gap(self, gens: List[Dict]) -> Optional[float]:
-        vals = [g.get("gap_to_published_pct") for g in gens if g.get("gap_to_published_pct") is not None]
-        finite = [float(v) for v in vals if np.isfinite(float(v))]
-        if not finite:
+    @staticmethod
+    def _strict_best_so_far(values: List[float]) -> List[float]:
+        best = float("inf")
+        series: List[float] = []
+        for value in values:
+            current = float(value)
+            if np.isfinite(current) and current < best:
+                best = current
+            series.append(best)
+        return series
+
+    def _last_finite_gap(self, network_file: str, gens: List[Dict]) -> Optional[float]:
+        ref = self.reference_scores.get(network_file, {}).get("published_best_universal_score")
+        if ref is None:
             return None
-        return float(finite[-1])
+        try:
+            ref_value = float(ref)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(ref_value) or ref_value <= 0.0:
+            return None
+
+        best_feasible = self._best_finite_paper_score(gens)
+        if best_feasible is None or not np.isfinite(best_feasible):
+            return None
+
+        return float(100.0 * (best_feasible - ref_value) / ref_value)
 
     def plot_convergence(self, snapshot: Dict[str, Dict[str, Optional[Dict]]]) -> Optional[Path]:
         fig, axes = plt.subplots(1, len(NETWORK_ORDER), figsize=(18, 5))
@@ -164,8 +185,8 @@ class HistoryVisualizer:
             if not mg and not sg:
                 continue
             labels.append(net)
-            memetic_gaps.append(self._last_finite_gap(mg))
-            standard_gaps.append(self._last_finite_gap(sg))
+            memetic_gaps.append(self._last_finite_gap(net, mg))
+            standard_gaps.append(self._last_finite_gap(net, sg))
 
         if not labels:
             return None
@@ -183,8 +204,8 @@ class HistoryVisualizer:
         ax.axhline(0.0, color="black", linewidth=1.2)
         ax.set_xticks(x)
         ax.set_xticklabels(labels)
-        ax.set_ylabel("Gap to published best (%)")
-        ax.set_title("Attempt_005 History: Gap to SOTA")
+        ax.set_ylabel("Delta to published reference (%)")
+        ax.set_title("Attempt_005 History: Delta to Published Reference")
         ax.grid(True, axis="y", alpha=0.3)
         ax.legend()
 
@@ -273,15 +294,101 @@ class HistoryVisualizer:
         run_payloads: List[Dict] = []
         for r in selected:
             gens = self.persistence.load_generations(r.run_id)
-            y = [
+            y_raw = [
                 float(g["best_paper_score"])
                 for g in gens
                 if g.get("best_paper_score") is not None and np.isfinite(float(g["best_paper_score"]))
             ]
-            if not y:
+            if not y_raw:
                 continue
-            run_payloads.append({"run_id": r.run_id, "y": y})
+            run_payloads.append({"run_id": r.run_id, "y": self._strict_best_so_far(y_raw)})
         return run_payloads
+
+    def _available_networks_for_algorithm(self, algorithm: str) -> List[str]:
+        rows = self.persistence.list_runs(limit=5000)
+        available = []
+        for net in NETWORK_ORDER:
+            if any(r.network_file == net and r.algorithm == algorithm and r.status in ("completed", "stopped", "running") for r in rows):
+                available.append(net)
+        return available
+
+    def _plot_group_statistics_for_networks(
+        self,
+        algorithm: str,
+        networks: List[str],
+        latest_only: bool,
+        latest_limit: int = 12,
+    ) -> Optional[Path]:
+        active_networks = []
+        per_network_payloads: Dict[str, List[Dict]] = {}
+        for net in networks:
+            payloads = self._collect_group_runs(net, algorithm, latest_only, latest_limit)
+            if len(payloads) >= 2:
+                active_networks.append(net)
+                per_network_payloads[net] = payloads
+
+        if not active_networks:
+            return None
+
+        fig, axes = plt.subplots(1, len(active_networks), figsize=(6 * len(active_networks), 6), squeeze=False)
+        axes = axes[0]
+
+        for ax, net in zip(axes, active_networks):
+            run_payloads = per_network_payloads[net]
+            min_len = min(len(r["y"]) for r in run_payloads)
+            if min_len < 2:
+                ax.set_visible(False)
+                continue
+
+            cropped = np.array([r["y"][:min_len] for r in run_payloads], dtype=float)
+            x = np.arange(1, min_len + 1)
+
+            median_curve = np.median(cropped, axis=0)
+            p25 = np.percentile(cropped, 25, axis=0)
+            p75 = np.percentile(cropped, 75, axis=0)
+
+            finals = cropped[:, -1]
+            best_idx = int(np.argmin(finals))
+            worst_idx = int(np.argmax(finals))
+
+            best_curve = cropped[best_idx]
+            worst_curve = cropped[worst_idx]
+            best_run_id = run_payloads[best_idx]["run_id"]
+            worst_run_id = run_payloads[worst_idx]["run_id"]
+
+            ax.fill_between(x, p25, p75, color="#93c5fd", alpha=0.35, label="IQR (25-75%)")
+            ax.plot(x, median_curve, color="#1d4ed8", linewidth=2.6, label="Median")
+            ax.plot(x, best_curve, color="#15803d", linewidth=2.0, label=f"Best ({best_run_id})")
+            ax.plot(x, worst_curve, color="#b91c1c", linewidth=2.0, label=f"Worst ({worst_run_id})")
+            ax.set_xlabel("Generation (cropped to common min length)")
+            ax.set_ylabel("Best strict paper score")
+            ax.set_yscale("log")
+            ax.set_title(f"{net}")
+            ax.grid(True, alpha=0.3)
+            ax.legend(fontsize=8)
+
+        for ax in axes[len(active_networks):]:
+            ax.set_visible(False)
+
+        algo_label = ALGO_LABEL.get(algorithm, algorithm)
+        scope = "latest" if latest_only else "all"
+        fig.suptitle(
+            f"Run Statistics | {algo_label} | {scope} runs | networks: {', '.join(active_networks)}",
+            fontsize=12,
+        )
+
+        safe_algo = algorithm.replace(" ", "_")
+        net_tag = "_".join(net.replace(".inp", "") for net in active_networks)
+        out_name = (
+            f"10_stats_latest_{safe_algo}_{net_tag}.png"
+            if latest_only
+            else f"11_stats_all_{safe_algo}_{net_tag}.png"
+        )
+        out = self.output_dir / out_name
+        fig.tight_layout()
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return out
 
     def plot_group_run_statistics(
         self,
@@ -341,3 +448,17 @@ class HistoryVisualizer:
         fig.savefig(out, dpi=300, bbox_inches="tight")
         plt.close(fig)
         return out
+
+    def generate_all_existing_group_statistics(self, latest_only: bool = False, latest_limit: int = 12) -> List[Path]:
+        outputs: List[Path] = []
+        for algo in ALGO_ORDER:
+            networks = self._available_networks_for_algorithm(algo)
+            out = self._plot_group_statistics_for_networks(
+                algorithm=algo,
+                networks=networks,
+                latest_only=latest_only,
+                latest_limit=latest_limit,
+            )
+            if out is not None:
+                outputs.append(out)
+        return outputs
