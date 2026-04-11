@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import csv
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed, ProcessPoolExecutor
+import multiprocessing
 import json
-from datetime import datetime
 from pathlib import Path
 import os
 import re
 import statistics
+import sys
 import tempfile
 import threading
+import time
 
 import numpy as np
 import wntr
@@ -60,7 +62,9 @@ def _snap_to_allowed_diameters(
     return allowed_diameters[nearest_idx]
 
 
-def _load_wntr_model_robust(inp_path: Path) -> tuple[wntr.network.WaterNetworkModel, Path | None]:
+def _load_wntr_model_robust(
+    inp_path: Path,
+) -> tuple[wntr.network.WaterNetworkModel, Path | None]:
     try:
         return wntr.network.WaterNetworkModel(str(inp_path)), None
     except UnicodeDecodeError:
@@ -73,7 +77,147 @@ def _load_wntr_model_robust(inp_path: Path) -> tuple[wntr.network.WaterNetworkMo
         tmp.flush()
         tmp_path = Path(tmp.name)
         tmp.close()
-        return wntr.network.WaterNetworkModel(str(tmp_path)), tmp_path
+    return wntr.network.WaterNetworkModel(str(tmp_path)), tmp_path
+
+
+def _run_single_experiment_worker(
+    run_id: int,
+    instance_path: str,
+    pipe_ids: list[str],
+    allowed_diameters: np.ndarray,
+    unit_costs: np.ndarray,
+    pipe_lengths: np.ndarray,
+    junction_names: list[str],
+    bounds: np.ndarray,
+    config_dict: dict,
+    published_best_cost: float,
+    min_head: float,
+    progress_state_proxy,
+    progress_lock_proxy,
+) -> dict:
+    """Worker function executed in a separate process.
+
+    Uses manager proxies for progress updates (progress_state_proxy and progress_lock_proxy).
+    All other inputs are plain picklable objects.
+    """
+
+    # Local helpers to update progress in the manager-shared state
+    def _mark_progress_started_local(run_id: int) -> None:
+        with progress_lock_proxy:
+            state = progress_state_proxy[run_id]
+            state["start_time"] = time.monotonic()
+            state["finished"] = False
+            state["finished_elapsed_seconds"] = None
+            state["done_generations"] = 0
+
+    def _update_progress_local(
+        run_id: int, done_generations: int, best_cost: float
+    ) -> None:
+        with progress_lock_proxy:
+            state = progress_state_proxy[run_id]
+            state["done_generations"] = int(done_generations)
+            state["best_cost"] = float(best_cost)
+
+    # Start
+    _mark_progress_started_local(run_id)
+    wn, temp_inp = _load_wntr_model_robust(Path(instance_path))
+    # Create a temporary directory for EPANET output files to avoid collisions
+    tmpdir = tempfile.TemporaryDirectory()
+    file_prefix = os.path.join(tmpdir.name, f"run_{run_id}_{os.getpid()}")
+    objective_cache: dict[tuple[float, ...], float] = {}
+
+    # Recreate config object from dict
+    config = DifferentialEvolutionConfig(**config_dict)
+
+    def objective(candidate: np.ndarray) -> float:
+        snapped = _snap_to_allowed_diameters(candidate, allowed_diameters)
+        key = tuple(np.round(snapped, 8).tolist())
+        cached = objective_cache.get(key)
+        if cached is not None:
+            return cached
+
+        snapped_indices = np.argmin(
+            np.abs(snapped[:, np.newaxis] - allowed_diameters[np.newaxis, :]), axis=1
+        )
+        snapped_unit_costs = unit_costs[snapped_indices]
+        cost = float(np.sum(snapped_unit_costs * pipe_lengths))
+
+        for i, pid in enumerate(pipe_ids):
+            if pid in wn.pipe_name_list:
+                wn.get_link(pid).diameter = float(snapped[i])
+
+        try:
+            sim = wntr.sim.EpanetSimulator(wn)
+            # use a unique file prefix per worker process to avoid simultaneous
+            # processes writing the same files (which causes convergence issues)
+            # require convergence to be successful; otherwise raise and penalize
+            results = sim.run_sim(file_prefix=file_prefix, convergence_error=True)
+            pressure_ts = results.node["pressure"]
+            final_pressure = pressure_ts.iloc[-1]
+            available_junctions = [
+                j for j in junction_names if j in final_pressure.index
+            ]
+            if not available_junctions:
+                value = cost + 1e12
+            else:
+                junction_pressures = final_pressure.loc[available_junctions]
+                shortfalls = np.maximum(0.0, min_head - junction_pressures.values)
+                violation = float(np.sum(shortfalls))
+                if violation <= 1e-9:
+                    value = cost
+                else:
+                    value = cost + (2e5 * violation) + 1e7
+        except Exception:
+            value = cost + 1e12
+
+        objective_cache[key] = value
+        return value
+
+    try:
+        seed = 10_000 + run_id
+        rng = np.random.default_rng(seed)
+
+        result = run_differential_evolution(
+            objective=objective,
+            bounds=bounds,
+            rng=rng,
+            config=config,
+            progress_callback=lambda generation, best: _update_progress_local(
+                run_id, generation, best
+            ),
+        )
+
+        best_cost = result.best_fitness
+        distance_from_published_best_pct = (
+            max(0.0, ((best_cost / published_best_cost) - 1.0) * 100.0)
+            if published_best_cost > 0
+            else 0.0
+        )
+        run_summary = {
+            "run_id": float(run_id),
+            "seed": float(seed),
+            "best_cost": best_cost,
+            "published_best_cost": published_best_cost,
+            "distance_from_published_best_pct": distance_from_published_best_pct,
+        }
+        return {
+            "run_id": run_id,
+            "best_cost": best_cost,
+            "run_summary": run_summary,
+            "history": result.history,
+            "best_vector": result.best_vector,
+        }
+    finally:
+        if temp_inp and temp_inp.exists():
+            try:
+                temp_inp.unlink()
+            except OSError:
+                pass
+    # Clean up temporary directory used for epanet files
+    try:
+        tmpdir.cleanup()
+    except Exception:
+        pass
 
 
 def _min_head_requirement(reference_entry: dict) -> float:
@@ -82,6 +226,52 @@ def _min_head_requirement(reference_entry: dict) -> float:
     if match:
         return float(match.group(1))
     return 20.0
+
+
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None or not np.isfinite(seconds):
+        return "--:--"
+    total = max(0, int(round(seconds)))
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _build_progress_line(
+    run_id: int,
+    done_generations: int,
+    total_generations: int,
+    elapsed_seconds: float,
+    best_cost: float | None,
+    finished: bool,
+    published_best_cost: float,
+) -> str:
+    bar_width = 24
+    progress = done_generations / max(1, total_generations)
+    filled = min(bar_width, int(round(progress * bar_width)))
+    bar = f"{'#' * filled}{'-' * (bar_width - filled)}"
+    pct = progress * 100.0
+
+    if finished:
+        eta_fragment = f"done in {_format_duration(elapsed_seconds)}"
+    elif done_generations <= 0:
+        eta_fragment = "eta --:--"
+    else:
+        remaining = max(0, total_generations - done_generations)
+        eta_seconds = (elapsed_seconds / done_generations) * remaining
+        eta_fragment = f"eta {_format_duration(eta_seconds)}"
+
+    if best_cost is not None and published_best_cost > 0:
+        distance_pct = max(0.0, ((best_cost / published_best_cost) - 1.0) * 100.0)
+        best_fragment = f"{distance_pct:.2f}%"
+    else:
+        best_fragment = "--"
+    return (
+        f"run {run_id:02d} [{bar}] {pct:6.2f}% "
+        f"{done_generations:3d}/{total_generations:3d} {eta_fragment} best={best_fragment}"
+    )
 
 
 def main() -> None:
@@ -98,7 +288,9 @@ def main() -> None:
     if parsed.pipes is None or not parsed.pipes.entries:
         raise ValueError(f"Instance {instance_path.name} has no pipes.")
 
-    reference_path = Path(__file__).resolve().parent / "results" / "published_reference_scores.json"
+    reference_path = (
+        Path(__file__).resolve().parent / "results" / "published_reference_scores.json"
+    )
     reference_entry = _load_reference_entry(reference_path, instance_path.name)
     published_best_cost = float(reference_entry["published_best_universal_score"])
 
@@ -106,14 +298,18 @@ def main() -> None:
     allowed_diameters = np.array(
         [float(item["diameter_m"]) for item in diameter_set], dtype=float
     )
-    unit_costs = np.array([float(item["unit_cost_per_m"]) for item in diameter_set], dtype=float)
+    unit_costs = np.array(
+        [float(item["unit_cost_per_m"]) for item in diameter_set], dtype=float
+    )
 
     pipe_lengths = np.array([pipe.length for pipe in parsed.pipes.entries], dtype=float)
     if pipe_lengths.size != len(parsed.pipes.entries):
         raise ValueError("Pipe length and decision vector dimensions are inconsistent.")
     min_head = _min_head_requirement(reference_entry)
 
-    junction_names = [node.id for node in parsed.junctions.entries] if parsed.junctions else []
+    junction_names = (
+        [node.id for node in parsed.junctions.entries] if parsed.junctions else []
+    )
 
     bounds = np.column_stack(
         (
@@ -122,112 +318,36 @@ def main() -> None:
         )
     )
 
-    def _run_single_experiment(run_id: int) -> dict[str, object]:
-        # Isolate WNTR state per run to avoid cross-thread mutations.
-        wn, temp_inp = _load_wntr_model_robust(instance_path)
-        objective_cache: dict[tuple[float, ...], float] = {}
-
-        def objective(candidate: np.ndarray) -> float:
-            snapped = _snap_to_allowed_diameters(candidate, allowed_diameters)
-            key = tuple(np.round(snapped, 8).tolist())
-            cached = objective_cache.get(key)
-            if cached is not None:
-                return cached
-
-            # Cost definition from benchmark metadata:
-            # sum(unit_cost(d_i) * pipe_length_i), with d_i snapped to allowed set.
-            snapped_indices = np.argmin(
-                np.abs(snapped[:, np.newaxis] - allowed_diameters[np.newaxis, :]), axis=1
-            )
-            snapped_unit_costs = unit_costs[snapped_indices]
-            cost = float(np.sum(snapped_unit_costs * pipe_lengths))
-
-            for i, pipe in enumerate(parsed.pipes.entries):
-                if pipe.id in wn.pipe_name_list:
-                    wn.get_link(pipe.id).diameter = float(snapped[i])
-
-            try:
-                # EPANET toolkit calls used by WNTR are not reliably thread-safe.
-                # Keep threaded run orchestration, but serialize toolkit simulations.
-                with simulator_lock:
-                    sim = wntr.sim.EpanetSimulator(wn)
-                    results = sim.run_sim()
-                pressure_ts = results.node["pressure"]
-                final_pressure = pressure_ts.iloc[-1]
-                available_junctions = [j for j in junction_names if j in final_pressure.index]
-                if not available_junctions:
-                    value = cost + 1e12
-                else:
-                    junction_pressures = final_pressure.loc[available_junctions]
-                    shortfalls = np.maximum(0.0, min_head - junction_pressures.values)
-                    violation = float(np.sum(shortfalls))
-                    if violation <= 1e-9:
-                        value = cost
-                    else:
-                        # Keep a finite penalty so DE can rank infeasible candidates.
-                        value = cost + (2e5 * violation) + 1e7
-            except Exception:
-                value = cost + 1e12
-
-            objective_cache[key] = value
-            return value
-
-        try:
-            seed = 10_000 + run_id
-            rng = np.random.default_rng(seed)
-            result = run_differential_evolution(
-                objective=objective,
-                bounds=bounds,
-                rng=rng,
-                config=config,
-            )
-
-            best_cost = result.best_fitness
-            # 0% is the target (matches/beats published best). Positive values show distance above target.
-            distance_from_published_best_pct = (
-                max(0.0, ((best_cost / published_best_cost) - 1.0) * 100.0)
-                if published_best_cost > 0
-                else 0.0
-            )
-            run_summary = {
-                "run_id": float(run_id),
-                "seed": float(seed),
-                "best_cost": best_cost,
-                "published_best_cost": published_best_cost,
-                "distance_from_published_best_pct": distance_from_published_best_pct,
-            }
-            return {
-                "run_id": run_id,
-                "best_cost": best_cost,
-                "run_summary": run_summary,
-                "history": result.history,
-                "best_vector": result.best_vector,
-            }
-        finally:
-            if temp_inp and temp_inp.exists():
-                try:
-                    temp_inp.unlink()
-                except OSError:
-                    pass
+    # Note: per-run work is executed in separate processes using
+    # _run_single_experiment_worker defined above.
 
     config = DifferentialEvolutionConfig(
-        population_size=50,
-        generations=100,
-        mutation_factor=0.8,
-        crossover_rate=0.9,
+        population_size=20,
+        generations=60,
+        mutation_factor=0.5,
+        crossover_rate=0.8,
     )
     runs = 12
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    results_dir = Path(__file__).resolve().parent / "results" / f"{instance_path.stem}-{timestamp}"
+    instance_run_id = f"{config.generations}-{config.population_size}-{int(config.mutation_factor * 100)}-{int(config.crossover_rate * 100)}"
+    results_dir = (
+        Path(__file__).resolve().parent
+        / "results"
+        / f"{instance_path.stem}-{instance_run_id}"
+    )
     results_dir.mkdir(parents=True, exist_ok=True)
 
     experiment_meta = {
         "instance": instance_path.name,
         "runs": runs,
         "dimensions": int(bounds.shape[0]),
-        "bounds_diameter_m": [float(np.min(allowed_diameters)), float(np.max(allowed_diameters))],
-        "objective_type": reference_entry.get("objective_type", "minimize total pipe cost"),
+        "bounds_diameter_m": [
+            float(np.min(allowed_diameters)),
+            float(np.max(allowed_diameters)),
+        ],
+        "objective_type": reference_entry.get(
+            "objective_type", "minimize total pipe cost"
+        ),
         "cost_definition": reference_entry.get("cost_definition", ""),
         "published_best_cost": published_best_cost,
         "de_config": {
@@ -242,34 +362,161 @@ def main() -> None:
     )
 
     best_costs: list[float] = []
+    run_durations_seconds: list[float] = []
     run_summaries: list[dict[str, float]] = []
-    simulator_lock = threading.Lock()
 
-    max_workers = min(runs, max(1, os.cpu_count() or 1))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(_run_single_experiment, run_id): run_id
-            for run_id in range(1, runs + 1)
-        }
-        for future in as_completed(futures):
-            run_payload = future.result()
-            run_id = int(run_payload["run_id"])
-            best_cost = float(run_payload["best_cost"])
-            run_summary = run_payload["run_summary"]
-            history = run_payload["history"]
-            best_vector = run_payload["best_vector"]
+    # Use multiprocessing Manager to share progress state and a lock between processes
+    manager = multiprocessing.Manager()
+    progress_lock = manager.RLock()
+    progress_state = manager.dict()
+    for run_id in range(1, runs + 1):
+        progress_state[run_id] = manager.dict(
+            {
+                "done_generations": 0,
+                "start_time": None,
+                "finished": False,
+                "best_cost": None,
+                "finished_elapsed_seconds": None,
+            }
+        )
 
-            best_costs.append(best_cost)
-            run_summaries.append(run_summary)  # type: ignore[arg-type]
+    progress_enabled = sys.stdout.isatty()
+    stop_progress_render = threading.Event()
+    rendered_line_count = 0
 
-            _write_csv(results_dir / f"run_{run_id:02d}_history.csv", history)  # type: ignore[arg-type]
-            (results_dir / f"run_{run_id:02d}_best_vector.csv").write_text(
-                ",".join(str(value) for value in best_vector) + "\n",  # type: ignore[arg-type]
-                encoding="utf-8",
+    def _mark_progress_done_local(run_id: int, final_best_cost: float) -> None:
+        with progress_lock:
+            state = progress_state[run_id]
+            start_time = state.get("start_time")
+            if start_time is None:
+                start_time = time.monotonic()
+                state["start_time"] = start_time
+            finished_elapsed_seconds = time.monotonic() - float(start_time)
+            state["done_generations"] = config.generations
+            state["best_cost"] = float(final_best_cost)
+            state["finished"] = True
+            state["finished_elapsed_seconds"] = finished_elapsed_seconds
+
+    def _render_progress() -> None:
+        nonlocal rendered_line_count
+        if not progress_enabled:
+            return
+        now = time.monotonic()
+        with progress_lock:
+            snapshot = {
+                run_id: dict(progress_state[run_id]) for run_id in progress_state.keys()
+            }
+
+        lines = ["Per-run progress:"]
+        for run_id in sorted(snapshot):
+            state = snapshot[run_id]
+            start_time = state.get("start_time")
+            finished = bool(state.get("finished", False))
+            finished_elapsed_seconds = state.get("finished_elapsed_seconds")
+            elapsed = (
+                finished_elapsed_seconds
+                if finished and finished_elapsed_seconds is not None
+                else (now - start_time if start_time is not None else 0.0)
             )
+            lines.append(
+                _build_progress_line(
+                    run_id=run_id,
+                    done_generations=int(state.get("done_generations", 0)),
+                    total_generations=config.generations,
+                    elapsed_seconds=elapsed,
+                    best_cost=state.get("best_cost"),
+                    finished=finished,
+                    published_best_cost=published_best_cost,
+                )
+            )
+
+        if rendered_line_count > 0:
+            sys.stdout.write(f"\x1b[{rendered_line_count}F")
+        for line in lines:
+            sys.stdout.write(f"\x1b[K{line}\n")
+        sys.stdout.flush()
+        rendered_line_count = len(lines)
+
+    def _progress_renderer_worker() -> None:
+        while not stop_progress_render.is_set():
+            _render_progress()
+            if stop_progress_render.wait(timeout=0.5):
+                break
+        _render_progress()
+
+    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    progress_thread = (
+        threading.Thread(target=_progress_renderer_worker, daemon=True)
+        if progress_enabled
+        else None
+    )
+    if progress_thread is not None:
+        progress_thread.start()
+
+    # Prepare arguments common to all workers
+    pipe_ids = [pipe.id for pipe in parsed.pipes.entries]
+    config_dict = {
+        "population_size": config.population_size,
+        "generations": config.generations,
+        "mutation_factor": config.mutation_factor,
+        "crossover_rate": config.crossover_rate,
+    }
+
+    try:
+        # Use ProcessPoolExecutor to parallelize across OS processes
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _run_single_experiment_worker,
+                    run_id,
+                    str(instance_path),
+                    pipe_ids,
+                    allowed_diameters,
+                    unit_costs,
+                    pipe_lengths,
+                    junction_names,
+                    bounds,
+                    config_dict,
+                    published_best_cost,
+                    min_head,
+                    progress_state,
+                    progress_lock,
+                ): run_id
+                for run_id in range(1, runs + 1)
+            }
+            for future in as_completed(futures):
+                run_payload = future.result()
+                run_id = int(run_payload["run_id"])
+                best_cost = float(run_payload["best_cost"])
+                run_summary = run_payload["run_summary"]
+                history = run_payload["history"]
+                best_vector = run_payload["best_vector"]
+
+                best_costs.append(best_cost)
+                run_summaries.append(run_summary)  # type: ignore[arg-type]
+                _mark_progress_done_local(run_id, best_cost)
+                with progress_lock:
+                    finished_elapsed_seconds = progress_state[run_id].get(
+                        "finished_elapsed_seconds"
+                    )
+                if finished_elapsed_seconds is not None:
+                    run_durations_seconds.append(float(finished_elapsed_seconds))
+
+                _write_csv(results_dir / f"run_{run_id:02d}_history.csv", history)  # type: ignore[arg-type]
+                (results_dir / f"run_{run_id:02d}_best_vector.csv").write_text(
+                    ",".join(str(value) for value in best_vector) + "\n",  # type: ignore[arg-type]
+                    encoding="utf-8",
+                )
+    finally:
+        stop_progress_render.set()
+        if progress_thread is not None:
+            progress_thread.join()
+            if rendered_line_count > 0:
+                print()
 
     aggregate = {
         "instance": instance_path.name,
+        "experiment_config": experiment_meta["de_config"],
         "runs": runs,
         "published_best_cost": published_best_cost,
         "best_cost_min": min(best_costs),
@@ -277,6 +524,15 @@ def main() -> None:
         "best_cost_mean": statistics.mean(best_costs),
         "best_cost_median": statistics.median(best_costs),
         "best_cost_stdev": statistics.stdev(best_costs) if len(best_costs) > 1 else 0.0,
+        "run_time_seconds_min": min(run_durations_seconds),
+        "run_time_seconds_max": max(run_durations_seconds),
+        "run_time_seconds_mean": statistics.mean(run_durations_seconds),
+        "run_time_seconds_median": statistics.median(run_durations_seconds),
+        "run_time_seconds_stdev": (
+            statistics.stdev(run_durations_seconds)
+            if len(run_durations_seconds) > 1
+            else 0.0
+        ),
         "best_run_distance_from_published_best_pct": max(
             0.0, ((min(best_costs) / published_best_cost) - 1.0) * 100.0
         ),
@@ -296,10 +552,19 @@ def main() -> None:
     print(f"Runs completed: {runs}")
     print(f"Results saved to: {results_dir}")
     print(
+        "Run time stats:",
+        f"min={_format_duration(aggregate['run_time_seconds_min'])},",
+        f"median={_format_duration(aggregate['run_time_seconds_median'])},",
+        f"mean={_format_duration(aggregate['run_time_seconds_mean'])},",
+        f"max={_format_duration(aggregate['run_time_seconds_max'])},",
+        f"std={_format_duration(aggregate['run_time_seconds_stdev'])}",
+    )
+    print(
         "Cost stats:",
         f"min={aggregate['best_cost_min']:.2f},",
         f"median={aggregate['best_cost_median']:.2f},",
         f"mean={aggregate['best_cost_mean']:.2f},",
+        f"max={aggregate['best_cost_max']:.2f},",
         f"std={aggregate['best_cost_stdev']:.2f}",
     )
     print(
@@ -307,5 +572,7 @@ def main() -> None:
         f"best-run={aggregate['best_run_distance_from_published_best_pct']:.2f}%,",
         f"median-run={aggregate['median_run_distance_from_published_best_pct']:.2f}%",
     )
+
+
 if __name__ == "__main__":
     main()

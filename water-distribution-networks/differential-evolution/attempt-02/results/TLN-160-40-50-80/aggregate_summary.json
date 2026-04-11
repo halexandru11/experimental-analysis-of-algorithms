@@ -1,0 +1,23 @@
+{
+  "instance": "TLN.inp",
+  "experiment_config": {
+    "population_size": 40,
+    "generations": 160,
+    "mutation_factor": 0.5,
+    "crossover_rate": 0.8
+  },
+  "runs": 24,
+  "published_best_cost": 419000.0,
+  "best_cost_min": 419000.0,
+  "best_cost_max": 441000.0,
+  "best_cost_mean": 421625.0,
+  "best_cost_median": 420000.0,
+  "best_cost_stdev": 4879.526883694325,
+  "run_time_seconds_min": 66.8381532329986,
+  "run_time_seconds_max": 142.61178629200003,
+  "run_time_seconds_mean": 93.84723148750011,
+  "run_time_seconds_median": 91.88046532899898,
+  "run_time_seconds_stdev": 19.248510322199834,
+  "best_run_distance_from_published_best_pct": 0.0,
+  "median_run_distance_from_published_best_pct": 0.23866348448686736
+}

@@ -1,6 +1,6 @@
 ; Filename: /home/halexandru11/skull/m2/eaa/water-distribution-networks/data/TLN.inp
 ; WNTR: 1.4.0
-; Created: 2026-04-10 12:47:01
+; Created: 2026-04-10 22:09:08
 [TITLE]
 
 [JUNCTIONS]
@@ -21,14 +21,14 @@
 
 [PIPES]
 ;ID                   Node1                Node2                              Length             Diameter            Roughness           Minor Loss               Status
- 1                    1                    2                               1000           457.2             130               0                 Open   ;
- 2                    2                    3                               1000           355.6             130               0                 Open   ;
- 3                    2                    4                               1000             508             130               0                 Open   ;
- 4                    4                    5                               1000            25.4             130               0                 Open   ;
- 5                    4                    6                               1000           406.4             130               0                 Open   ;
- 6                    6                    7                               1000             254             130               0                 Open   ;
- 7                    3                    5                               1000           304.8             130               0                 Open   ;
- 8                    5                    7                               1000            25.4             130               0                 Open   ;
+ 1                    1                    2                               1000           203.2             130               0                 Open   ;
+ 2                    2                    3                               1000           304.8             130               0                 Open   ;
+ 3                    2                    4                               1000           457.2             130               0                 Open   ;
+ 4                    4                    5                               1000             254             130               0                 Open   ;
+ 5                    4                    6                               1000           457.2             130               0                 Open   ;
+ 6                    6                    7                               1000           406.4             130               0                 Open   ;
+ 7                    3                    5                               1000           558.8             130               0                 Open   ;
+ 8                    5                    7                               1000           304.8             130               0                 Open   ;
 
 [PUMPS]
 ;ID                   Node1                Node2                Properties          
