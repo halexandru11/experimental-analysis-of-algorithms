@@ -98,6 +98,20 @@ class BenchmarkRunner:
         return diameters, costs
 
     @staticmethod
+    def _lookup_unit_cost(diameter: float, unit_cost_lookup: Dict[float, float]) -> float:
+        """Lookup unit cost with tolerance to avoid float key mismatch."""
+        d = float(diameter)
+        direct = unit_cost_lookup.get(d)
+        if direct is not None:
+            return float(direct)
+
+        for cand_d, cand_cost in unit_cost_lookup.items():
+            if abs(float(cand_d) - d) <= 1e-7:
+                return float(cand_cost)
+
+        raise KeyError(f"Diameter {d} not found in benchmark catalog")
+
+    @staticmethod
     def _get_min_head_requirement(network_file: str) -> float:
         """Benchmark minimum pressure head requirement in meters."""
         defaults = {
@@ -147,7 +161,16 @@ class BenchmarkRunner:
         try:
             for i, d in enumerate(diameters):
                 pipe = network.pipes_list[i]
-                cost += unit_cost_lookup[float(d)] * pipe.length
+                pipe_length = float(pipe.length)
+                unit_cost = self._lookup_unit_cost(float(d), unit_cost_lookup)
+
+                # Physical sanity guard: strict benchmark costs must be positive finite values.
+                if not np.isfinite(pipe_length) or pipe_length <= 0.0:
+                    raise ValueError(f"Invalid pipe length for {pipe.id}: {pipe.length}")
+                if not np.isfinite(unit_cost) or unit_cost <= 0.0:
+                    raise ValueError(f"Invalid unit cost for diameter {d}: {unit_cost}")
+
+                cost += unit_cost * pipe_length
         except KeyError:
             result = {
                 'paper_score': float('inf'),
@@ -157,6 +180,19 @@ class BenchmarkRunner:
                 'paper_min_pressure': float('-inf'),
                 'paper_eval_ok': 0.0,
                 'paper_eval_note': 'diameter_not_in_benchmark_catalog'
+            }
+            if return_diagnostics:
+                result['paper_diagnostics'] = {}
+            return result
+        except ValueError as e:
+            result = {
+                'paper_score': float('inf'),
+                'paper_cost': float('inf'),
+                'paper_feasible': 0.0,
+                'paper_violation': float('inf'),
+                'paper_min_pressure': float('-inf'),
+                'paper_eval_ok': 0.0,
+                'paper_eval_note': f'invalid_cost_inputs: {e}'
             }
             if return_diagnostics:
                 result['paper_diagnostics'] = {}
@@ -200,6 +236,19 @@ class BenchmarkRunner:
             min_pressure = float(np.min(pressure_matrix)) if pressure_matrix.size > 0 else float('-inf')
             feasible = 1.0 if total_violation <= 1e-9 else 0.0
             score = cost if feasible > 0 else float('inf')
+
+            # A feasible strict score must be a positive finite cost.
+            if feasible > 0.5 and (not np.isfinite(score) or score <= 0.0):
+                return {
+                    'paper_score': float('inf'),
+                    'paper_cost': float('inf'),
+                    'paper_feasible': 0.0,
+                    'paper_violation': float('inf'),
+                    'paper_min_pressure': min_pressure,
+                    'paper_eval_ok': 0.0,
+                    'paper_eval_note': 'invalid_nonpositive_or_nonfinite_feasible_score',
+                    'paper_diagnostics': {} if return_diagnostics else None,
+                }
 
             result = {
                 'paper_score': float(score),

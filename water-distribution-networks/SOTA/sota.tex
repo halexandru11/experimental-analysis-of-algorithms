@@ -419,13 +419,13 @@ The implemented pipeline has four layers:
     \item \textbf{Search layer:} GA and Memetic GA produce candidate pipe diameter vectors.
     \item \textbf{Hydraulic evaluation layer:} strict benchmark feasibility and score are computed through WNTR/EPANET-style simulation.
     \item \textbf{Persistence/analysis layer:} run history, generation metrics, and logs are stored in SQLite and exported for plotting.
-    \item \textbf{UI/operations layer:} a Tk-based control panel supports starting, resuming, stopping, graph generation, and replay visualization.
+    \item \textbf{Experiment operations layer:} lightweight controls are used only to launch/stop/resume experiments and export analysis artifacts.
 \end{enumerate}
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/UI_main_window_screenshot.png}
-\caption{Attempt\_005 UI main window.}
+\caption{Attempt\_005 GUI overview used for experiment orchestration.}
 \end{figure}
 
 \subsection{Solution Encoding and Core Data Structures}
@@ -582,36 +582,17 @@ Practical effect:
     \item smaller $N$ gives more frequent exact \texttt{feasible\_in\_pop} counts.
 \end{itemize}
 
-\subsection{Parallel Runs and Multiprocessing}
+\subsection{Experiment Orchestration}
 
-The UI supports parallel experimentation in two ways:
+Operational tooling is intentionally secondary in this work. It is used for reproducible experimentation only:
 \begin{itemize}
-    \item \textbf{Parallel Runs:} launch multiple runs with different seeds in one action.
-    \item \textbf{Multiprocessing option:} each run can execute in its own process (safer isolation for long strict evaluations and better CPU utilization).
+    \item run multiple seeds and both algorithms,
+    \item resume interrupted experiments from checkpoints,
+    \item export per-generation history and summary plots,
+    \item inspect the best chromosome trajectory when needed.
 \end{itemize}
 
-This is useful for stochastic algorithms because single-run performance can vary with seed.
-
-\subsection{Resume, Extended Generations, and Safety Notes}
-
-Runs can be resumed from checkpoint state. The implementation supports extending completed runs by setting a higher \texttt{Max Gens} and resuming. If an old completed run has missing checkpoint files, a synthetic fallback can be built from persisted best chromosome history (approximate resume path, clearly logged).
-
-\subsection{UI Functions and Analyst Workflow}
-
-Main UI actions:
-\begin{itemize}
-    \item start/resume/stop/delete runs,
-    \item generate global history graphs,
-    \item generate statistics for latest or all runs,
-    \item generate graphs from selected runs only,
-    \item open solution replay viewer and browser replay.
-\end{itemize}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Run-history_table_and_logs_panel_screenshot.png}
-\caption{Run-history table and logs panel (with scrollbars).}
-\end{figure}
+The technical contribution remains the optimization/evaluation pipeline and the resulting benchmark numbers.
 
 \subsection{Graph Outputs}
 
@@ -644,6 +625,57 @@ How to explain in presentation:
 \caption{Best-of-best summary across all runs (gap to published best and final strict score).}
 \end{figure}
 
+\subsection{Observed Results (Concrete Numbers)}
+
+To complement the convergence plots, Table~\ref{tab:attempt005-best-vs-sota} reports concrete best values obtained from the live run history.
+
+\begin{table}[H]
+\centering
+\caption{Best strict paper score vs published reference (from live run history).}
+\label{tab:attempt005-best-vs-sota}
+\begin{tabular}{l l r r r}
+\hline
+Network & Algorithm & Best score & Published best & Gap (\%) \\
+\hline
+TLN.inp & Memetic GA  & 419000.0   & 419000.0   & 0.00 \\
+TLN.inp & Standard GA & 420000.0   & 419000.0   & 0.24 \\
+hanoi.inp & Memetic GA  & 6281488.3 & 6081000.0 & 3.30 \\
+hanoi.inp & Standard GA & 6430614.6 & 6081000.0 & 5.75 \\
+BIN.inp & Memetic GA  & 3933733.4 & 1956000.0 & 97.04 \\
+BIN.inp & Standard GA & 4427058.7 & 1956000.0 & 122.41 \\
+\hline
+\end{tabular}
+\end{table}
+
+Observations from Table~\ref{tab:attempt005-best-vs-sota}:
+\begin{itemize}
+    \item On TLN, Memetic GA reaches the published best value exactly (0.00\% gap).
+    \item On Hanoi, Memetic GA improves noticeably over Standard GA (3.30\% vs 5.75\% gap) and is nearly competitive with the literature reference.
+    \item On BIN (Balerma), both variants remain significantly above the published reference, but Memetic GA outperforms Standard GA (97.04\% vs 122.41\% gap), suggesting the need for alternative strategies on very large networks.
+\end{itemize}
+
+To show stability (not only single best runs), Table~\ref{tab:attempt005-run-distribution} summarizes the distribution of strict scores over all finite recorded runs per network/algorithm pair.
+
+\begin{table}[H]
+\centering
+\caption{Run distribution summary from live history (finite strict scores only).}
+\label{tab:attempt005-run-distribution}
+\begin{tabular}{l l r r r r}
+\hline
+Network & Algorithm & Runs & Mean score & Min score & Max score \\
+\hline
+TLN.inp & Memetic GA  & 20 & 424150.0   & 419000.0   & 448000.0 \\
+TLN.inp & Standard GA & 1  & 420000.0   & 420000.0   & 420000.0 \\
+hanoi.inp & Memetic GA  & 17 & 6778049.4 & 6281488.3 & 7581995.4 \\
+hanoi.inp & Standard GA & 1  & 6430614.6 & 6430614.6 & 6430614.6 \\
+BIN.inp & Memetic GA  & 14 & 4234735.2 & 3933733.4 & 4717918.7 \\
+BIN.inp & Standard GA & 1  & 4427058.7 & 4427058.7 & 4427058.7 \\
+\hline
+\end{tabular}
+\end{table}
+
+These numbers indicate that the current implementation is already competitive on smaller benchmarks, while large-network performance (BIN) is still the main gap to state-of-the-art.
+
 \subsection{Browser Replay Visualization}
 
 Browser replay exports an HTML visualization for generation-by-generation inspection:
@@ -675,8 +707,19 @@ The implemented system provides a practical, reproducible, and transparent frame
     \item strict EPANET/WNTR-style feasibility-first scoring with caching,
     \item configurable feasibility scan modes (full, best-first, hybrid),
     \item reproducible run persistence and resume workflows,
-    \item integrated UI + replay + graphing for transparent analysis.
+    \item concrete benchmark reporting with explicit best-vs-SOTA tables.
 \end{enumerate}
+
+\subsection{Future Improvements}
+
+The most relevant next steps, based on the observed results, are:
+\begin{itemize}
+    \item \textbf{Strengthen large-network search (BIN):} adaptive diversification and restart policies tuned for very large design spaces.
+    \item \textbf{Increase statistical robustness:} balanced run counts for both algorithms on each benchmark (not only one Standard GA run).
+    \item \textbf{Budget-normalized benchmarking:} compare algorithms at equal evaluation budgets (objective calls/time), not only equal generation counts.
+    \item \textbf{Hydraulic evaluation acceleration:} stronger caching and parallel strict checks to allow deeper runs without prohibitive time.
+    \item \textbf{Ablation studies:} isolate impact of local search intensity, scan mode, and repair strategy on feasibility and final cost.
+\end{itemize}
 
 \begin{thebibliography}{99}
 

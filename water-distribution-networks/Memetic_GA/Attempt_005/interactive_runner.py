@@ -628,6 +628,8 @@ class InteractiveRunManager:
                 value = 1e15
             elif paper_eval.get("paper_feasible", 0.0) > 0.5:
                 value = float(paper_eval.get("paper_cost", float("inf")))
+                if (not np.isfinite(value)) or value <= 0.0:
+                    value = 1e15
             else:
                 base_cost = float(paper_eval.get("paper_cost", float("inf")))
                 violation = float(paper_eval.get("paper_violation", float("inf")))
@@ -668,6 +670,41 @@ class InteractiveRunManager:
 
             strict_eval_cache: Dict[tuple, Dict[str, Any]] = {}
 
+            def _sanitize_strict_eval(eval_payload: Dict[str, Any]) -> Dict[str, Any]:
+                """Normalize strict evaluator output and reject impossible feasible scores."""
+                raw = dict(eval_payload or {})
+                score = float(raw.get("paper_score", float("inf")))
+                cost = float(raw.get("paper_cost", float("inf")))
+                violation = float(raw.get("paper_violation", float("inf")))
+                feasible = 1.0 if float(raw.get("paper_feasible", 0.0) or 0.0) > 0.5 else 0.0
+                eval_ok = 1.0 if float(raw.get("paper_eval_ok", 1.0) or 0.0) > 0.5 else 0.0
+
+                # Feasible benchmark scores must be strictly positive and finite.
+                if feasible > 0.5 and ((not np.isfinite(score)) or score <= 0.0 or (not np.isfinite(cost)) or cost <= 0.0):
+                    return {
+                        **raw,
+                        "paper_score": float("inf"),
+                        "paper_cost": float("inf"),
+                        "paper_feasible": 0.0,
+                        "paper_violation": float("inf"),
+                        "paper_eval_ok": 0.0,
+                        "paper_eval_note": "invalid_nonpositive_or_nonfinite_feasible_score",
+                    }
+
+                if feasible <= 0.5:
+                    score = float("inf")
+                    if not np.isfinite(violation) or violation < 0.0:
+                        violation = float("inf")
+
+                return {
+                    **raw,
+                    "paper_score": float(score),
+                    "paper_cost": float(cost) if np.isfinite(cost) else float("inf"),
+                    "paper_feasible": float(feasible),
+                    "paper_violation": float(violation),
+                    "paper_eval_ok": float(eval_ok),
+                }
+
             def _stable_strict_eval_uncached(diameters: List[float]) -> Dict[str, Any]:
                 """Conservative strict evaluation: require repeatable feasibility."""
                 first = self._runner._evaluate_paper_score(
@@ -676,6 +713,7 @@ class InteractiveRunManager:
                     network,
                     diameters,
                 )
+                first = _sanitize_strict_eval(first)
                 if float(first.get("paper_feasible", 0.0)) <= 0.5:
                     return first
 
@@ -685,6 +723,7 @@ class InteractiveRunManager:
                     network,
                     diameters,
                 )
+                second = _sanitize_strict_eval(second)
                 if float(second.get("paper_feasible", 0.0)) <= 0.5:
                     return {
                         **first,
@@ -702,7 +741,7 @@ class InteractiveRunManager:
                 chosen = {**chosen}
                 chosen["paper_score"] = float(chosen.get("paper_cost", float("inf")))
                 chosen["paper_feasible"] = 1.0
-                return chosen
+                return _sanitize_strict_eval(chosen)
 
             def stable_strict_eval(diameters: List[float]) -> Dict[str, Any]:
                 """Shared cached strict evaluator used by both optimization and reporting."""
@@ -821,7 +860,11 @@ class InteractiveRunManager:
 
                 seen_score = resume_state.get("best_paper_score_seen")
                 if seen_score is not None:
-                    best_paper_score_seen = float(seen_score)
+                    parsed_seen = float(seen_score)
+                    if np.isfinite(parsed_seen) and parsed_seen > 0.0:
+                        best_paper_score_seen = parsed_seen
+                    else:
+                        self._log(run_id, "Resume checkpoint had invalid best_paper_score_seen; reset to inf", level="warning")
                 seen_gap = resume_state.get("best_gap_seen")
                 if seen_gap is not None:
                     best_gap_seen = float(seen_gap)
@@ -1069,6 +1112,17 @@ class InteractiveRunManager:
                 paper_score = float(strict_best.get("paper_score", float("inf")))
                 paper_cost = float(strict_best.get("paper_cost", float("inf")))
                 paper_feasible = float(strict_best.get("paper_feasible", 0.0))
+
+                # Guard against invalid strict outputs leaking into persistence/logging.
+                if paper_feasible > 0.5 and ((not np.isfinite(paper_score)) or paper_score <= 0.0 or (not np.isfinite(paper_cost)) or paper_cost <= 0.0):
+                    self._log(
+                        run_id,
+                        "Invalid feasible strict score detected (non-finite/non-positive); coercing to infeasible +inf",
+                        level="warning",
+                    )
+                    paper_score = float("inf")
+                    paper_cost = float("inf")
+                    paper_feasible = 0.0
 
                 # Metrics are already based on stable repeat-checked strict evaluation.
 
