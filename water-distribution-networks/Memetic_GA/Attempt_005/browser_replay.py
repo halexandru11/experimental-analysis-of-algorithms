@@ -40,6 +40,7 @@ class BrowserReplayExporter:
             raise ValueError("This run does not have stored chromosome snapshots yet")
 
         diameter_values, unit_cost_lookup = self._get_benchmark_cost_spec(network_file)
+        published_reference = self._get_published_reference_score(network_file)
         evaluator = FitnessEvaluator(
             network,
             diameter_options=diameter_values,
@@ -54,17 +55,30 @@ class BrowserReplayExporter:
         node_positions = {node_id: [float(node["x"]), float(node["y"])] for node_id, node in nodes.items()}
 
         frames = []
+        best_feasible_paper_score_so_far = float("inf")
         for row in generations:
             chromosome = [int(g) for g in (row.get("best_chromosome") or [])]
             diameters = evaluator.indices_to_diameters(chromosome)
+            paper_score = self._to_float(row.get("best_paper_score"))
+            if paper_score is not None and math.isfinite(paper_score) and paper_score < best_feasible_paper_score_so_far:
+                best_feasible_paper_score_so_far = float(paper_score)
+
+            best_gap_to_reference = None
+            if (
+                published_reference is not None
+                and published_reference > 0.0
+                and math.isfinite(best_feasible_paper_score_so_far)
+            ):
+                best_gap_to_reference = 100.0 * (best_feasible_paper_score_so_far - published_reference) / published_reference
+
             frames.append(
                 {
                     "generation": int(row["generation"]),
                     "training_fitness": self._to_float(row.get("best_training_fitness")),
-                    "paper_score": self._to_float(row.get("best_paper_score")),
+                    "paper_score": paper_score,
                     "paper_cost": self._to_float(row.get("best_paper_cost")),
                     "feasible_count": int(row.get("feasible_count") or 0),
-                    "gap_to_published_pct": self._to_float(row.get("gap_to_published_pct")),
+                    "gap_to_published_pct": best_gap_to_reference,
                     "chromosome": chromosome,
                     "diameters": diameters,
                 }
@@ -73,7 +87,8 @@ class BrowserReplayExporter:
         payload = {
             "run_id": run_id,
             "network_file": network_file,
-          "population_size": int((run_row.get("config") or {}).get("population_size") or 0),
+            "population_size": int((run_row.get("config") or {}).get("population_size") or 0),
+            "published_reference": published_reference,
             "network": {
                 "nodes": nodes,
                 "pipes": pipes,
@@ -130,6 +145,20 @@ class BrowserReplayExporter:
         except Exception:
             return [], {}
 
+    def _get_published_reference_score(self, network_file: str) -> Optional[float]:
+        try:
+            from test_benchmarks import BenchmarkRunner
+
+            results_dir = self.base_dir / "Memetic_GA" / "Attempt_004" / "results"
+            runner = BenchmarkRunner(str(self.data_dir), str(results_dir))
+            ref = runner.reference_scores.get(network_file, {}).get("published_best_universal_score")
+            if ref is None:
+                return None
+            value = float(ref)
+            return value if value > 0.0 else None
+        except Exception:
+            return None
+
     @staticmethod
     def _to_float(value: Any) -> Optional[float]:
         if value is None:
@@ -140,67 +169,171 @@ class BrowserReplayExporter:
             return None
 
     def _load_layout(self, network_path: Path) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+      def parse_coordinates_from_inp(path: Path) -> Dict[str, Tuple[float, float]]:
+        coords: Dict[str, Tuple[float, float]] = {}
         try:
-            import wntr
-
-            wn = wntr.network.WaterNetworkModel(str(network_path))
-            nodes: Dict[str, Dict[str, Any]] = {}
-            coords_by_node: Dict[str, Tuple[float, float]] = {}
-
-            for name in wn.node_name_list:
-                node = wn.get_node(name)
-                nodes[name] = {
-                    "elevation": self._to_float(getattr(node, "elevation", None)),
-                    "kind": "reservoir" if name in wn.reservoir_name_list else "junction",
-                }
-                coords = getattr(node, "coordinates", None)
-                if coords and len(coords) >= 2:
-                  coords_by_node[name] = (float(coords[0]), float(coords[1]))
-
-            pipes = []
-            for link_name in wn.pipe_name_list:
-                link = wn.get_link(link_name)
-                pipes.append(
-                    {
-                        "id": str(link_name),
-                        "node1": str(link.start_node_name),
-                        "node2": str(link.end_node_name),
-                    "length_m": self._to_float(getattr(link, "length", None)),
-                    }
-                )
-
-            for pipe in pipes:
-                nodes.setdefault(pipe["node1"], {"elevation": None, "kind": "junction"})
-                nodes.setdefault(pipe["node2"], {"elevation": None, "kind": "junction"})
-
-            missing = [node_id for node_id in nodes if node_id not in coords_by_node]
-            if missing:
-                placed = list(coords_by_node.values())
-                if placed:
-                    cx = sum(x for x, _ in placed) / len(placed)
-                    cy = sum(y for _, y in placed) / len(placed)
-                    span_x = max(x for x, _ in placed) - min(x for x, _ in placed)
-                    span_y = max(y for _, y in placed) - min(y for _, y in placed)
-                    radius = max(span_x, span_y, 1.0) * 0.6
-                else:
-                    cx, cy, radius = 0.0, 0.0, float(max(len(nodes), 1))
-
-                step = 2.0 * math.pi / max(len(missing), 1)
-                for idx, node_id in enumerate(sorted(missing)):
-                    angle = idx * step
-                    coords_by_node[node_id] = (
-                        cx + radius * math.cos(angle),
-                        cy + radius * math.sin(angle),
-                    )
-
-            for node_id, meta in nodes.items():
-                x, y = coords_by_node[node_id]
-                meta["x"] = float(x)
-                meta["y"] = float(y)
-
-            return nodes, pipes
+          in_section = False
+          for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith(";"):
+              continue
+            if line.startswith("[") and line.endswith("]"):
+              in_section = (line.upper() == "[COORDINATES]")
+              continue
+            if not in_section:
+              continue
+            parts = line.split()
+            if len(parts) < 3:
+              continue
+            node_id = str(parts[0])
+            try:
+              x = float(parts[1])
+              y = float(parts[2])
+            except Exception:
+              continue
+            coords[node_id] = (x, y)
         except Exception:
-            return {}, []
+          return {}
+        return coords
+
+      def build_fallback_layout(nodes: Dict[str, Dict[str, Any]], pipes: List[Dict[str, Any]]) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+        if not nodes:
+          return {}, []
+
+        try:
+          import networkx as nx
+
+          graph = nx.Graph()
+          graph.add_nodes_from(nodes.keys())
+          for pipe in pipes:
+            graph.add_edge(pipe["node1"], pipe["node2"], length=float(pipe.get("length_m") or 1.0))
+
+          # Deterministic, topology-driven layout. The inverse-length weighting
+          # keeps long pipes looser and short pipes tighter.
+          positions = nx.spring_layout(
+            graph,
+            seed=42,
+            weight=lambda _u, _v, edge_data: 1.0 / max(1.0, float(edge_data.get("length", 1.0))),
+            iterations=80,
+            scale=1000.0,
+          )
+
+          # Normalize and translate into a positive canvas space.
+          xs = [float(pos[0]) for pos in positions.values()]
+          ys = [float(pos[1]) for pos in positions.values()]
+          min_x, min_y = min(xs), min(ys)
+          max_x, max_y = max(xs), max(ys)
+          span_x = max(max_x - min_x, 1.0)
+          span_y = max(max_y - min_y, 1.0)
+          padding = max(span_x, span_y) * 0.08
+
+          for node_id, pos in positions.items():
+            nodes[node_id]["x"] = float((pos[0] - min_x) + padding)
+            nodes[node_id]["y"] = float((pos[1] - min_y) + padding)
+          return nodes, pipes
+        except Exception:
+          pass
+
+        # Final fallback: simple deterministic ring layout.
+        node_ids = sorted(nodes.keys())
+        radius = float(max(len(node_ids), 1)) * 100.0
+        coords_by_node: Dict[str, Tuple[float, float]] = {}
+        for idx, node_id in enumerate(node_ids):
+          angle = (2.0 * math.pi * idx) / max(len(node_ids), 1)
+          coords_by_node[node_id] = (
+            radius * math.cos(angle),
+            radius * math.sin(angle),
+          )
+
+        for node_id, meta in nodes.items():
+          x, y = coords_by_node[node_id]
+          meta["x"] = float(x)
+          meta["y"] = float(y)
+        return nodes, pipes
+
+      nodes: Dict[str, Dict[str, Any]] = {}
+      pipes: List[Dict[str, Any]] = []
+
+      try:
+        import wntr
+
+        wn = wntr.network.WaterNetworkModel(str(network_path))
+        for name in wn.node_name_list:
+          node = wn.get_node(name)
+          nodes[name] = {
+            "elevation": self._to_float(getattr(node, "elevation", None)),
+            "kind": "reservoir" if name in wn.reservoir_name_list else "junction",
+          }
+          coords = getattr(node, "coordinates", None)
+          if coords and len(coords) >= 2:
+            nodes[name]["x"] = float(coords[0])
+            nodes[name]["y"] = float(coords[1])
+
+        for link_name in wn.pipe_name_list:
+          link = wn.get_link(link_name)
+          pipes.append(
+            {
+              "id": str(link_name),
+              "node1": str(link.start_node_name),
+              "node2": str(link.end_node_name),
+              "length_m": self._to_float(getattr(link, "length", None)),
+            }
+          )
+
+        for pipe in pipes:
+          nodes.setdefault(pipe["node1"], {"elevation": None, "kind": "junction"})
+          nodes.setdefault(pipe["node2"], {"elevation": None, "kind": "junction"})
+
+        # Prefer true INP coordinates whenever available.
+        inp_coords = parse_coordinates_from_inp(network_path)
+        for node_id, (x, y) in inp_coords.items():
+          if node_id in nodes:
+            nodes[node_id]["x"] = float(x)
+            nodes[node_id]["y"] = float(y)
+
+        if nodes and any("x" not in meta or "y" not in meta for meta in nodes.values()):
+          # Fill missing coordinates from a deterministic topology fallback.
+          nodes, pipes = build_fallback_layout(nodes, pipes)
+
+        if nodes:
+          return nodes, pipes
+      except Exception:
+        pass
+
+      # Fallback path: use the lightweight parser and synthesize coordinates.
+      try:
+        network = parse_inp_file(str(network_path))
+        for j in network.junctions.values():
+          nodes[j.id] = {"elevation": float(j.elevation), "kind": "junction"}
+        for r in network.reservoirs.values():
+          nodes[r.id] = {"elevation": self._to_float(r.head), "kind": "reservoir"}
+        for p in network.pipes_list:
+          pipes.append(
+            {
+              "id": str(p.id),
+              "node1": str(p.node1),
+              "node2": str(p.node2),
+              "length_m": self._to_float(p.length),
+            }
+          )
+
+        for pipe in pipes:
+          nodes.setdefault(pipe["node1"], {"elevation": None, "kind": "junction"})
+          nodes.setdefault(pipe["node2"], {"elevation": None, "kind": "junction"})
+
+        # Parse explicit [COORDINATES] from INP if present.
+        inp_coords = parse_coordinates_from_inp(network_path)
+        for node_id, (x, y) in inp_coords.items():
+          if node_id in nodes:
+            nodes[node_id]["x"] = float(x)
+            nodes[node_id]["y"] = float(y)
+
+        if nodes and not any("x" not in meta or "y" not in meta for meta in nodes.values()):
+          return nodes, pipes
+
+        return build_fallback_layout(nodes, pipes)
+      except Exception:
+        return {}, []
 
     def _build_html(self, payload: Dict[str, Any]) -> str:
         json_payload = json.dumps(payload, ensure_ascii=False)
@@ -254,6 +387,19 @@ class BrowserReplayExporter:
     .panelTitle { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; font-size: 12px; line-height: 1.5; color: #21313f; }
     .legend { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.6; }
+      .legend { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.6; }
+      .legendGroup { margin-top: 14px; }
+      .legendLabel { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-weight: 700; color: var(--ink); margin-bottom: 6px; }
+      .legendSub { font-size: 11px; color: var(--muted); font-weight: 500; }
+      .legendBar {
+        height: 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(148,163,184,0.7);
+        box-shadow: inset 0 1px 2px rgba(15,23,42,0.10);
+        margin-bottom: 6px;
+      }
+      .legendTicks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+      .legendNote { margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.45; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e6fffb; color: #115e59; font-size: 12px; margin-left: 8px; }
   </style>
 </head>
@@ -261,7 +407,7 @@ class BrowserReplayExporter:
   <div class=\"shell\">
     <div class=\"header\">
       <div class=\"title\" id=\"pageTitle\"></div>
-      <div class=\"subtitle\">Fast browser replay. Slider moves through stored best solutions per generation. Pipes are colored by diameter; nodes are colored by elevation.</div>
+      <div class=\"subtitle\">Fast browser replay. Slider moves through stored best solutions per generation. Pipes are colored by diameter. Junction colors show elevation only: green = lower elevation, red = higher elevation, gray = missing elevation.</div>
     </div>
     <div class=\"controls\">
       <div>
@@ -291,7 +437,7 @@ class BrowserReplayExporter:
       <div class=\"metrics\">
         <div class=\"metric\"><strong id=\"metricTrain\">-</strong> train_fit</div>
         <div class=\"metric\"><strong id=\"metricPaper\">-</strong> paper_score</div>
-        <div class=\"metric\"><strong id=\"metricGap\">-</strong> gap</div>
+        <div class=\"metric\"><strong id=\"metricGap\">-</strong> best delta vs ref</div>
         <div class=\"metric\"><strong id=\"metricFeas\">-</strong> feasible</div>
       </div>
     </div>
@@ -302,11 +448,19 @@ class BrowserReplayExporter:
       <div class=\"sidebar\">
         <div class=\"panelTitle\">Run Info</div>
         <div class=\"mono\" id=\"infoBox\"></div>
-        <div class=\"legend\">
-          <div><strong>Pipe color</strong>: diameter</div>
-          <div><strong>Node color</strong>: elevation</div>
-          <div><strong>Node size</strong>: reservoirs emphasized</div>
-          <div><strong>Controls</strong>: slider / arrow keys</div>
+        <div class="legend">
+          <div class="legendGroup">
+            <div class="legendLabel"><span>Pipe diameter</span><span class="legendSub">green = small, red = large</span></div>
+            <div class="legendBar" style="background: linear-gradient(90deg, #16a34a 0%, #dc2626 100%);"></div>
+            <div class="legendTicks"><span>small</span><span>large</span></div>
+          </div>
+          <div class="legendGroup">
+            <div class="legendLabel"><span>Node elevation</span><span class="legendSub">green = low, red = high</span></div>
+            <div class="legendBar" style="background: linear-gradient(90deg, #16a34a 0%, #dc2626 100%);"></div>
+            <div class="legendTicks"><span>low</span><span>high</span></div>
+          </div>
+          <div class="legendNote">Gray nodes mean no elevation value was available. Reservoirs are drawn larger than junctions.</div>
+          <div class="legendNote">Controls: slider, arrow keys, and playback buttons.</div>
         </div>
       </div>
     </div>
@@ -545,7 +699,8 @@ function renderFrame(idx) {
     `Paper score: ${frame.paper_score == null ? 'n/a' : frame.paper_score.toExponential(3)}`,
     `Paper cost: ${frame.paper_cost == null ? 'n/a' : frame.paper_cost.toExponential(3)}`,
     `Feasible individuals: ${populationSize > 0 ? (frame.feasible_count + '/' + populationSize) : frame.feasible_count}`,
-    `Gap to SOTA: ${frame.gap_to_published_pct == null ? 'n/a' : `${frame.gap_to_published_pct >= 0 ? '+' : ''}${frame.gap_to_published_pct.toFixed(2)}%`}`,
+    `Best feasible delta vs published reference: ${frame.gap_to_published_pct == null ? 'n/a' : `${frame.gap_to_published_pct >= 0 ? '+' : ''}${frame.gap_to_published_pct.toFixed(2)}%`}`,
+    `Published reference score: ${DATA.published_reference == null ? 'n/a' : DATA.published_reference.toExponential(3)}`,
     '',
     'This view is browser-rendered SVG for low-lag scrubbing.'
   ].join('\\n');

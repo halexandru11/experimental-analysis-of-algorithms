@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Solution Replay - TLN.inp - run-46d7919f09</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --ink: #14202b;
+      --muted: #5a6874;
+      --accent: #0f766e;
+      --border: #d8e0e8;
+      --shadow: 0 14px 40px rgba(15, 23, 42, 0.10);
+    }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: Segoe UI, Inter, system-ui, sans-serif;
+      background: linear-gradient(180deg, #eef3f7 0%, #f8fafc 100%);
+      color: var(--ink);
+    }
+    .shell { display: grid; grid-template-rows: auto auto 1fr; height: 100%; gap: 12px; padding: 16px; box-sizing: border-box; }
+    .header, .controls, .content { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
+    .header { padding: 16px 18px; }
+    .title { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    .subtitle { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .controls { padding: 14px 18px; display: grid; grid-template-columns: 1fr auto; gap: 10px 18px; align-items: center; }
+    .sliderRow { display: flex; align-items: center; gap: 12px; }
+    .playbackRow { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .playBtn { border: 1px solid var(--border); background: #f8fafc; color: var(--ink); border-radius: 9px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+    .playBtn:hover { background: #eef2f7; }
+    .speedBadge { padding: 3px 8px; border-radius: 999px; background: #e6fffb; color: #115e59; font-size: 12px; min-width: 84px; text-align: center; }
+    .styleRows { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+    .styleControl { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .styleControl span:last-child { color: var(--ink); font-weight: 700; min-width: 44px; text-align: right; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    .metrics { display: flex; flex-wrap: wrap; gap: 10px 16px; color: var(--muted); font-size: 13px; }
+    .metric strong { color: var(--ink); font-weight: 700; }
+    .content { display: grid; grid-template-columns: minmax(0, 1fr) 320px; overflow: hidden; }
+    .canvasWrap { position: relative; min-height: 0; padding: 10px; }
+    svg { width: 100%; height: 100%; min-height: 0; display: block; background: radial-gradient(circle at top left, rgba(15, 118, 110, 0.05), transparent 40%); }
+    .hoverTip { position: fixed; pointer-events: none; z-index: 20; display: none; background: rgba(15,23,42,0.92); color: #f8fafc; border: 1px solid rgba(148,163,184,0.45); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45; white-space: pre; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .sidebar { border-left: 1px solid var(--border); padding: 16px; overflow: auto; background: linear-gradient(180deg, rgba(248,250,252,0.95), #fff); }
+    .panelTitle { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; font-size: 12px; line-height: 1.5; color: #21313f; }
+    .legend { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e6fffb; color: #115e59; font-size: 12px; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <div class="title" id="pageTitle"></div>
+      <div class="subtitle">Fast browser replay. Slider moves through stored best solutions per generation. Pipes are colored by diameter. Junction colors show elevation only: green = lower elevation, red = higher elevation, gray = missing elevation.</div>
+    </div>
+    <div class="controls">
+      <div>
+        <div class="sliderRow">
+          <input id="genSlider" type="range" min="0" max="0" value="0" step="1" />
+          <span class="pill" id="genLabel">Gen 0</span>
+        </div>
+        <div class="playbackRow">
+          <button id="prevBtn" class="playBtn" type="button">Prev Gen</button>
+          <button id="playBtn" class="playBtn" type="button">Resume</button>
+          <button id="nextBtn" class="playBtn" type="button">Next Gen</button>
+          <button id="speedDownBtn" class="playBtn" type="button">< Speed</button>
+          <span id="speedValue" class="speedBadge">1.00 gen/s</span>
+          <button id="speedUpBtn" class="playBtn" type="button">Speed ></button>
+        </div>
+        <div class="styleRows">
+          <label class="styleControl">Pipes
+            <input id="pipeWidthSlider" type="range" min="0.6" max="24.0" value="1.8" step="0.1" />
+            <span id="pipeWidthValue">1.80x</span>
+          </label>
+          <label class="styleControl">Nodes
+            <input id="nodeSizeSlider" type="range" min="0.6" max="21.0" value="1.7" step="0.1" />
+            <span id="nodeSizeValue">1.70x</span>
+          </label>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><strong id="metricTrain">-</strong> train_fit</div>
+        <div class="metric"><strong id="metricPaper">-</strong> paper_score</div>
+        <div class="metric"><strong id="metricGap">-</strong> best delta vs ref</div>
+        <div class="metric"><strong id="metricFeas">-</strong> feasible</div>
+      </div>
+    </div>
+    <div class="content">
+      <div class="canvasWrap">
+        <svg id="svg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="sidebar">
+        <div class="panelTitle">Run Info</div>
+        <div class="mono" id="infoBox"></div>
+        <div class="legend">
+          <div><strong>Pipe color</strong>: diameter (smaller = greener, larger = redder)</div>
+          <div><strong>Node color</strong>: elevation (lower = greener, higher = redder, gray = missing)</div>
+          <div><strong>Node size</strong>: reservoirs emphasized</div>
+          <div><strong>Controls</strong>: slider / arrow keys</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="hoverTip" class="hoverTip"></div>
+<script>
+const DATA = {"run_id": "run-46d7919f09", "network_file": "TLN.inp", "population_size": 40, "published_reference": 419000.0, "network": {"nodes": {"2": {"elevation": 150.0, "kind": "junction", "x": 2600.0, "y": 6700.0}, "3": {"elevation": 160.0, "kind": "junction", "x": 4600.0, "y": 6700.0}, "4": {"elevation": 155.0, "kind": "junction", "x": 2600.0, "y": 4700.0}, "5": {"elevation": 150.0, "kind": "junction", "x": 4600.0, "y": 4700.0}, "6": {"elevation": 165.0, "kind": "junction", "x": 2600.0, "y": 2700.0}, "7": {"elevation": 160.0, "kind": "junction", "x": 4600.0, "y": 2700.0}, "1": {"elevation": null, "kind": "reservoir", "x": 1233.33, "y": 7950.0}}, "pipes": [{"id": "1", "node1": "1", "node2": "2", "length_m": 1000.0}, {"id": "2", "node1": "2", "node2": "3", "length_m": 1000.0}, {"id": "3", "node1": "2", "node2": "4", "length_m": 1000.0}, {"id": "4", "node1": "4", "node2": "5", "length_m": 1000.0}, {"id": "5", "node1": "4", "node2": "6", "length_m": 1000.0}, {"id": "6", "node1": "6", "node2": "7", "length_m": 1000.0}, {"id": "7", "node1": "3", "node2": "5", "length_m": 1000.0}, {"id": "8", "node1": "5", "node2": "7", "length_m": 1000.0}], "node_positions": {"2": [2600.0, 6700.0], "3": [4600.0, 6700.0], "4": [2600.0, 4700.0], "5": [4600.0, 4700.0], "6": [2600.0, 2700.0], "7": [4600.0, 2700.0], "1": [1233.33, 7950.0]}, "node_values": {"2": 150.0, "3": 160.0, "4": 155.0, "5": 150.0, "6": 165.0, "7": 160.0}, "diameter_values": [0.0254, 0.0508, 0.0762, 0.1016, 0.1524, 0.2032, 0.254, 0.3048, 0.3556, 0.4064, 0.4572, 0.508, 0.5588, 0.6096]}, "frames": [{"generation": 1, "training_fitness": 848000.0, "paper_score": 848000.0, "paper_cost": 848000.0, "feasible_count": 6, "gap_to_published_pct": 102.38663484486874, "chromosome": [11, 10, 10, 8, 11, 2, 7, 10], "diameters": [0.508, 0.4572, 0.4572, 0.3556, 0.508, 0.0762, 0.3048, 0.4572]}, {"generation": 2, "training_fitness": 547000.0, "paper_score": 547000.0, "paper_cost": 547000.0, "feasible_count": 15, "gap_to_published_pct": 30.548926014319807, "chromosome": [10, 10, 9, 5, 9, 0, 7, 6], "diameters": [0.4572, 0.4572, 0.4064, 0.2032, 0.4064, 0.0254, 0.3048, 0.254]}, {"generation": 3, "training_fitness": 477000.0, "paper_score": 477000.0, "paper_cost": 477000.0, "feasible_count": 28, "gap_to_published_pct": 13.842482100238664, "chromosome": [10, 9, 9, 5, 8, 0, 7, 6], "diameters": [0.4572, 0.4064, 0.4064, 0.2032, 0.3556, 0.0254, 0.3048, 0.254]}, {"generation": 4, "training_fitness": 477000.0, "paper_score": 477000.0, "paper_cost": 477000.0, "feasible_count": 32, "gap_to_published_pct": 13.842482100238664, "chromosome": [10, 9, 9, 5, 8, 0, 7, 6], "diameters": [0.4572, 0.4064, 0.4064, 0.2032, 0.3556, 0.0254, 0.3048, 0.254]}, {"generation": 5, "training_fitness": 456000.0, "paper_score": 456000.0, "paper_cost": 456000.0, "feasible_count": 27, "gap_to_published_pct": 8.83054892601432, "chromosome": [10, 8, 9, 6, 8, 0, 6, 7], "diameters": [0.4572, 0.3556, 0.4064, 0.254, 0.3556, 0.0254, 0.254, 0.3048]}, {"generation": 6, "training_fitness": 456000.0, "paper_score": 456000.0, "paper_cost": 456000.0, "feasible_count": 36, "gap_to_published_pct": 8.83054892601432, "chromosome": [10, 8, 9, 6, 8, 0, 6, 7], "diameters": [0.4572, 0.3556, 0.4064, 0.254, 0.3556, 0.0254, 0.254, 0.3048]}, {"generation": 7, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 31, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 8, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 29, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 9, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 30, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 10, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 31, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 11, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 27, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 12, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 13, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 14, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 31, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 15, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 16, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 17, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 37, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 18, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 19, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 31, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 20, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 21, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 22, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 23, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 24, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 25, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 26, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 27, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 28, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 29, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 30, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 31, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 32, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 33, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 34, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 35, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 36, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 32, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 37, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 38, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 38, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 37, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 39, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 40, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 41, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 42, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 43, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 44, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 37, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 45, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 46, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 47, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 48, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 49, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 50, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 51, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 32, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 52, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 53, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 32, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 54, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 37, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 55, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 56, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 57, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 58, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 39, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 59, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 32, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 60, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 61, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 62, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 63, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 64, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 65, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 38, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 66, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 67, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 68, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 69, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 70, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 37, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 71, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 72, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 73, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 74, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 75, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 76, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 77, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 37, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 78, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 31, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 79, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 80, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 81, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 32, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 82, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 40, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 83, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 84, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 85, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 86, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 37, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 87, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 88, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 89, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 90, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 91, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 34, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 92, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 93, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 94, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 38, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 95, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 96, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 38, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 97, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 36, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 98, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 99, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 38, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 100, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 101, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 35, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}, {"generation": 102, "training_fitness": 427000.0, "paper_score": 427000.0, "paper_cost": 427000.0, "feasible_count": 33, "gap_to_published_pct": 1.909307875894988, "chromosome": [10, 8, 8, 5, 8, 0, 8, 6], "diameters": [0.4572, 0.3556, 0.3556, 0.2032, 0.3556, 0.0254, 0.3556, 0.254]}]};
+const frames = DATA.frames;
+const nodesById = DATA.network.nodes;
+const pipes = DATA.network.pipes;
+const nodePositions = DATA.network.node_positions;
+const nodeValues = DATA.network.node_values;
+const populationSize = Number(DATA.population_size || 0);
+const diaMin = Math.min(...DATA.network.diameter_values);
+const diaMax = Math.max(...DATA.network.diameter_values);
+const nodeValsArr = Object.values(nodeValues).map(Number);
+const nodeMin = nodeValsArr.length ? Math.min(...nodeValsArr) : 0;
+const nodeMax = nodeValsArr.length ? Math.max(...nodeValsArr) : 1;
+
+const slider = document.getElementById('genSlider');
+const genLabel = document.getElementById('genLabel');
+const infoBox = document.getElementById('infoBox');
+const pageTitle = document.getElementById('pageTitle');
+const metricTrain = document.getElementById('metricTrain');
+const metricPaper = document.getElementById('metricPaper');
+const metricGap = document.getElementById('metricGap');
+const metricFeas = document.getElementById('metricFeas');
+const pipeWidthSlider = document.getElementById('pipeWidthSlider');
+const nodeSizeSlider = document.getElementById('nodeSizeSlider');
+const pipeWidthValue = document.getElementById('pipeWidthValue');
+const nodeSizeValue = document.getElementById('nodeSizeValue');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const playBtn = document.getElementById('playBtn');
+const speedDownBtn = document.getElementById('speedDownBtn');
+const speedUpBtn = document.getElementById('speedUpBtn');
+const speedValue = document.getElementById('speedValue');
+const hoverTip = document.getElementById('hoverTip');
+const svg = document.getElementById('svg');
+
+pageTitle.textContent = `${DATA.network_file} replay for ${DATA.run_id}`;
+slider.max = String(frames.length - 1);
+slider.value = '0';
+
+const NS = 'http://www.w3.org/2000/svg';
+const elements = { pipes: [], nodes: [], labels: [] };
+let currentFrameIndex = 0;
+let pipeWidthScale = Number(pipeWidthSlider.value || 1.8);
+let nodeSizeScale = Number(nodeSizeSlider.value || 1.7);
+let playbackSpeed = 1.0;
+let playTimer = null;
+const nodeDegree = {};
+pipes.forEach((p) => {
+  nodeDegree[p.node1] = (nodeDegree[p.node1] || 0) + 1;
+  nodeDegree[p.node2] = (nodeDegree[p.node2] || 0) + 1;
+});
+
+function updateStyleLabels() {
+  pipeWidthValue.textContent = `${pipeWidthScale.toFixed(2)}x`;
+  nodeSizeValue.textContent = `${nodeSizeScale.toFixed(2)}x`;
+}
+
+function updatePlaybackLabel() {
+  speedValue.textContent = `${playbackSpeed.toFixed(2)} gen/s`;
+  playBtn.textContent = playTimer ? 'Pause' : 'Resume';
+}
+
+function stepGeneration(delta) {
+  const cur = parseInt(slider.value, 10) || 0;
+  const nxt = Math.max(0, Math.min(frames.length - 1, cur + delta));
+  slider.value = String(nxt);
+  scheduleRender(nxt);
+}
+
+function stopPlayback() {
+  if (playTimer) {
+    clearInterval(playTimer);
+    playTimer = null;
+  }
+  updatePlaybackLabel();
+}
+
+function startPlayback() {
+  if (playTimer || frames.length <= 1) {
+    updatePlaybackLabel();
+    return;
+  }
+  playTimer = setInterval(() => {
+    const cur = parseInt(slider.value, 10) || 0;
+    if (cur >= frames.length - 1) {
+      stopPlayback();
+      return;
+    }
+    stepGeneration(1);
+  }, Math.max(40, Math.round(1000 / Math.max(0.05, playbackSpeed))));
+  updatePlaybackLabel();
+}
+
+function togglePlayback() {
+  if (playTimer) {
+    stopPlayback();
+  } else {
+    startPlayback();
+  }
+}
+
+function changeSpeed(multiplier) {
+  playbackSpeed = Math.max(0.1, Math.min(20.0, playbackSpeed * multiplier));
+  const wasPlaying = Boolean(playTimer);
+  if (wasPlaying) {
+    stopPlayback();
+    startPlayback();
+  }
+  updatePlaybackLabel();
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function hex(n) { return Math.round(clamp(n, 0, 255)).toString(16).padStart(2, '0'); }
+function mixColor(c1, c2, t) {
+  const p1 = [parseInt(c1.slice(1,3),16), parseInt(c1.slice(3,5),16), parseInt(c1.slice(5,7),16)];
+  const p2 = [parseInt(c2.slice(1,3),16), parseInt(c2.slice(3,5),16), parseInt(c2.slice(5,7),16)];
+  return '#' + hex(lerp(p1[0], p2[0], t)) + hex(lerp(p1[1], p2[1], t)) + hex(lerp(p1[2], p2[2], t));
+}
+const COLOR_GREEN = '#16a34a';
+const COLOR_RED = '#dc2626';
+function diameterColor(d) {
+  const t = (d - diaMin) / (diaMax - diaMin || 1);
+  return mixColor(COLOR_GREEN, COLOR_RED, t);
+}
+function elevationColor(v) {
+  const t = (v - nodeMin) / (nodeMax - nodeMin || 1);
+  return mixColor(COLOR_GREEN, COLOR_RED, t);
+}
+
+function bounds() {
+  const xs = Object.values(nodePositions).map(p => p[0]);
+  const ys = Object.values(nodePositions).map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const padX = (maxX - minX) * 0.07 || 10;
+  const padY = (maxY - minY) * 0.07 || 10;
+  return { x: minX - padX, y: minY - padY, w: (maxX - minX) + 2*padX, h: (maxY - minY) + 2*padY };
+}
+
+function buildSvg() {
+  const b = bounds();
+  svg.setAttribute('viewBox', `${b.x} ${b.y} ${b.w} ${b.h}`);
+
+  pipes.forEach((p, idx) => {
+    const line = document.createElementNS(NS, 'line');
+    const a = nodePositions[p.node1];
+    const b = nodePositions[p.node2];
+    if (!a || !b) return;
+    line.setAttribute('x1', a[0]); line.setAttribute('y1', a[1]);
+    line.setAttribute('x2', b[0]); line.setAttribute('y2', b[1]);
+    line.setAttribute('stroke', '#475569');
+    line.setAttribute('stroke-width', '3.0');
+    line.setAttribute('opacity', '1');
+    line.setAttribute('stroke-linecap', 'round');
+    line.addEventListener('mouseenter', () => {
+      const frame = frames[currentFrameIndex] || {};
+      const ds = frame.diameters || [];
+      const d = Number(ds[idx]);
+      const diameterText = Number.isFinite(d) ? `${d.toFixed(4)} m` : 'n/a';
+      const lengthValue = Number(p.length_m);
+      const lengthText = Number.isFinite(lengthValue) ? `${lengthValue.toFixed(2)} m` : 'n/a';
+      hoverTip.textContent = [
+        `Pipe ${p.id}`,
+        `${p.node1} -> ${p.node2}`,
+        `Diameter: ${diameterText}`,
+        `Length: ${lengthText}`,
+      ].join('\n');
+      hoverTip.style.display = 'block';
+    });
+    line.addEventListener('mousemove', (ev) => {
+      hoverTip.style.left = `${ev.clientX + 14}px`;
+      hoverTip.style.top = `${ev.clientY + 14}px`;
+    });
+    line.addEventListener('mouseleave', () => {
+      hoverTip.style.display = 'none';
+    });
+    svg.appendChild(line);
+    elements.pipes.push({ el: line, data: p });
+  });
+
+  Object.entries(nodePositions).forEach(([id, pos]) => {
+    const circle = document.createElementNS(NS, 'circle');
+    circle.setAttribute('cx', pos[0]);
+    circle.setAttribute('cy', pos[1]);
+    const nodeInfo = nodesById[id] || {};
+    const baseR = nodeInfo.kind === 'reservoir' ? 9.0 : 4.5;
+    circle.setAttribute('r', String(baseR * nodeSizeScale));
+    circle.setAttribute('stroke', '#0f172a');
+    circle.setAttribute('stroke-width', String(0.75 * Math.max(0.85, Math.sqrt(nodeSizeScale))));
+    circle.addEventListener('mouseenter', () => {
+      const nodeInfo = nodesById[id] || {};
+      const kind = String(nodeInfo.kind || 'junction');
+      const elevation = Number(nodeInfo.elevation);
+      const elevationText = Number.isFinite(elevation) ? `${elevation.toFixed(2)} m` : 'n/a';
+      const degree = Number(nodeDegree[id] || 0);
+      const elevationScaleText = Number.isFinite(elevation)
+        ? 'Color: low elevation = green, high elevation = red'
+        : 'Color: gray (no elevation value)';
+      hoverTip.textContent = [
+        `Node ${id}`,
+        `Type: ${kind}`,
+        `Elevation: ${elevationText}`,
+        `Connected pipes: ${degree}`,
+        elevationScaleText,
+      ].join('\n');
+      hoverTip.style.display = 'block';
+    });
+    circle.addEventListener('mousemove', (ev) => {
+      hoverTip.style.left = `${ev.clientX + 14}px`;
+      hoverTip.style.top = `${ev.clientY + 14}px`;
+    });
+    circle.addEventListener('mouseleave', () => {
+      hoverTip.style.display = 'none';
+    });
+    svg.appendChild(circle);
+    elements.nodes.push({ id, el: circle, baseR });
+  });
+}
+
+function renderFrame(idx) {
+  const frame = frames[idx];
+  if (!frame) return;
+  currentFrameIndex = idx;
+
+  genLabel.textContent = `Gen ${idx + 1}/${frames.length}`;
+  metricTrain.textContent = frame.training_fitness == null ? '-' : frame.training_fitness.toExponential(3);
+  metricPaper.textContent = frame.paper_score == null ? '-' : frame.paper_score.toExponential(3);
+  metricGap.textContent = frame.gap_to_published_pct == null ? 'n/a' : `${frame.gap_to_published_pct >= 0 ? '+' : ''}${frame.gap_to_published_pct.toFixed(2)}%`;
+  metricFeas.textContent = populationSize > 0 ? (frame.feasible_count + ' / ' + populationSize) : String(frame.feasible_count);
+  infoBox.textContent = [
+    `Run: ${DATA.run_id}`,
+    `Network: ${DATA.network_file}`,
+    `Generation: ${frame.generation}`,
+    `Training fitness: ${frame.training_fitness == null ? 'n/a' : frame.training_fitness.toExponential(3)}`,
+    `Paper score: ${frame.paper_score == null ? 'n/a' : frame.paper_score.toExponential(3)}`,
+    `Paper cost: ${frame.paper_cost == null ? 'n/a' : frame.paper_cost.toExponential(3)}`,
+    `Feasible individuals: ${populationSize > 0 ? (frame.feasible_count + '/' + populationSize) : frame.feasible_count}`,
+    `Best feasible delta vs published reference: ${frame.gap_to_published_pct == null ? 'n/a' : `${frame.gap_to_published_pct >= 0 ? '+' : ''}${frame.gap_to_published_pct.toFixed(2)}%`}`,
+    `Published reference score: ${DATA.published_reference == null ? 'n/a' : DATA.published_reference.toExponential(3)}`,
+    '',
+    'This view is browser-rendered SVG for low-lag scrubbing.'
+  ].join('\n');
+
+  const genes = frame.diameters;
+  elements.pipes.forEach((pipeRef, i) => {
+    const p = pipeRef.el;
+    const d = Number(genes[i]);
+    if (!Number.isFinite(d)) {
+      p.setAttribute('stroke', '#475569');
+      p.setAttribute('stroke-width', String(3.0 * pipeWidthScale));
+      p.setAttribute('opacity', '1');
+      return;
+    }
+    const t = (d - diaMin) / (diaMax - diaMin || 1);
+    p.setAttribute('stroke', diameterColor(d));
+    p.setAttribute('stroke-width', String((3.0 + 5.0 * t) * pipeWidthScale));
+    p.setAttribute('opacity', '1');
+  });
+
+  elements.nodes.forEach(n => {
+    const value = nodeValues[n.id];
+    n.el.setAttribute('r', String(n.baseR * nodeSizeScale));
+    n.el.setAttribute('stroke-width', String(0.75 * Math.max(0.85, Math.sqrt(nodeSizeScale))));
+    if (value == null) {
+      n.el.setAttribute('fill', '#9ca3af');
+      return;
+    }
+    n.el.setAttribute('fill', elevationColor(value));
+  });
+}
+
+let rafToken = 0;
+function scheduleRender(idx) {
+  cancelAnimationFrame(rafToken);
+  rafToken = requestAnimationFrame(() => renderFrame(idx));
+}
+
+slider.addEventListener('input', (ev) => scheduleRender(parseInt(ev.target.value, 10)));
+prevBtn.addEventListener('click', () => stepGeneration(-1));
+nextBtn.addEventListener('click', () => stepGeneration(1));
+playBtn.addEventListener('click', () => togglePlayback());
+speedDownBtn.addEventListener('click', () => changeSpeed(0.5));
+speedUpBtn.addEventListener('click', () => changeSpeed(2.0));
+pipeWidthSlider.addEventListener('input', (ev) => {
+  pipeWidthScale = Number(ev.target.value || 1.8);
+  updateStyleLabels();
+  scheduleRender(parseInt(slider.value, 10));
+});
+nodeSizeSlider.addEventListener('input', (ev) => {
+  nodeSizeScale = Number(ev.target.value || 1.7);
+  updateStyleLabels();
+  scheduleRender(parseInt(slider.value, 10));
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'ArrowLeft') {
+    slider.value = String(Math.max(0, parseInt(slider.value, 10) - 1));
+    scheduleRender(parseInt(slider.value, 10));
+  } else if (ev.key === 'ArrowRight') {
+    slider.value = String(Math.min(frames.length - 1, parseInt(slider.value, 10) + 1));
+    scheduleRender(parseInt(slider.value, 10));
+  } else if (ev.key === ' ') {
+    ev.preventDefault();
+    togglePlayback();
+  } else if (ev.key === 'ArrowUp') {
+    changeSpeed(2.0);
+  } else if (ev.key === 'ArrowDown') {
+    changeSpeed(0.5);
+  }
+});
+
+updateStyleLabels();
+updatePlaybackLabel();
+buildSvg();
+renderFrame(0);
+</script>
+</body>
+</html>

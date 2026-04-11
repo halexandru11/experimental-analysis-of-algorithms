@@ -11,6 +11,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
+from matplotlib.patches import Rectangle
+from matplotlib.lines import Line2D
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -168,6 +170,46 @@ class SolutionEvolutionViewer(tk.Toplevel):
     def _chromosome_to_diameters(self, chromosome: List[int]) -> List[float]:
         return self.evaluator.indices_to_diameters([int(g) for g in chromosome])
 
+    def _create_legend_elements(self, dia_norm, dia_cmap, node_norm, node_cmap):
+        """Create visual legend elements for colormaps."""
+        legend_elements = []
+        
+        # Pipe diameter legend
+        pipe_samples = np.linspace(dia_norm.vmin, dia_norm.vmax, 5)
+        pipe_colors = [dia_cmap(dia_norm(val)) for val in pipe_samples]
+        legend_elements.append(Line2D([0], [0], color='white', label='Pipe diameter (color scale):'))
+        for i, (val, color) in enumerate(zip(pipe_samples, pipe_colors)):
+            legend_elements.append(
+                Line2D([0], [0], color=color, linewidth=4, 
+                       label=f'  {val:.1f}' + (' (min)' if i == 0 else ' (max)' if i == len(pipe_samples)-1 else ''))
+            )
+        
+        legend_elements.append(Line2D([0], [0], color='white', label=''))  # spacer
+        
+        # Node elevation legend
+        node_samples = np.linspace(node_norm.vmin, node_norm.vmax, 5)
+        node_colors = [node_cmap(node_norm(val)) for val in node_samples]
+        legend_elements.append(Line2D([0], [0], color='white', label='Node elevation (color scale):'))
+        legend_elements.append(Line2D([0], [0], marker='o', color='w', 
+                                     markerfacecolor=node_colors[0], markersize=8,
+                                     label=f'  {node_samples[0]:.1f}m (low)'))
+        for i in range(1, len(node_samples)-1):
+            legend_elements.append(
+                Line2D([0], [0], marker='o', color='w', 
+                      markerfacecolor=node_colors[i], markersize=8,
+                      label=f'  {node_samples[i]:.1f}m')
+            )
+        legend_elements.append(
+            Line2D([0], [0], marker='o', color='w', 
+                  markerfacecolor=node_colors[-1], markersize=8,
+                  label=f'  {node_samples[-1]:.1f}m (high)')
+        )
+        
+        return legend_elements
+
+    def _chromosome_to_diameters(self, chromosome: List[int]) -> List[float]:
+        return self.evaluator.indices_to_diameters([int(g) for g in chromosome])
+
     def _render_snapshot(self, generation_row: Dict[str, Any]) -> Dict[str, Any]:
         generation = int(generation_row["generation"])
         cached = self._render_cache.get(generation)
@@ -283,6 +325,10 @@ class SolutionEvolutionViewer(tk.Toplevel):
             cbar_pr = self.fig.colorbar(sc, ax=self.network_ax, fraction=0.03, pad=0.06)
             cbar_pr.set_label("Node elevation")
 
+        # Add visual legend to network plot
+        legend_elements = self._create_legend_elements(dia_norm, dia_cmap, node_norm, node_cmap)
+        self.network_ax.legend(handles=legend_elements, loc='upper left', fontsize=9, framealpha=0.95)
+
         # Info panel.
         gap = row.get("gap_to_published_pct")
         gap_text = "n/a" if gap is None else f"{float(gap):+.2f}%"
@@ -295,7 +341,7 @@ class SolutionEvolutionViewer(tk.Toplevel):
             f"Paper cost: {'inf' if row.get('best_paper_cost') is None else f'{float(row.get('best_paper_cost')):.3e}'}",
             f"Feasible: {'yes' if float(row.get('best_paper_feasible', 0.0) or 0.0) > 0.5 else 'no'}",
             f"Feasible in pop: {row.get('feasible_count', 'n/a')}",
-            f"Gap to SOTA: {gap_text}",
+            f"Best feasible delta vs published reference: {gap_text}",
             "",
             "Metrics shown:",
             "- Pipe color: diameter",

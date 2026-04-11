@@ -5,6 +5,7 @@ from typing import Optional
 import os
 import time
 import warnings
+import numpy as np
 
 # Suppress Tkinter cleanup warnings from background threads (harmless)
 warnings.filterwarnings("ignore", message=".*main thread is not in main loop.*")
@@ -44,9 +45,13 @@ class MemeticUI:
         self.local_var = tk.DoubleVar(value=0.8)
         self.seed_var = tk.IntVar(value=42)
         self.parallel_runs_var = tk.IntVar(value=1)
+        self.use_multiprocessing_var = tk.BooleanVar(value=True)
         self.strict_obj_var = tk.BooleanVar(value=True)
         self.full_pop_var = tk.BooleanVar(value=True)
         self.repair_mode_var = tk.StringVar(value="first_generation")
+        self.scan_mode_var = tk.StringVar(value="hybrid")
+        self.scan_top_k_var = tk.IntVar(value=8)
+        self.scan_full_interval_var = tk.IntVar(value=5)
 
         row0 = ttk.Frame(control)
         row0.pack(fill="x", padx=6, pady=4)
@@ -81,8 +86,29 @@ class MemeticUI:
 
         ttk.Checkbutton(
             row1,
-            text="Strict hydraulic check for full population each generation",
+            text="Force full-pop strict scan each generation (slow, exact feasible_in_pop)",
             variable=self.full_pop_var,
+        ).pack(side="left", padx=(0, 10))
+
+        ttk.Label(row1, text="Feasibility scan").pack(side="left", padx=(0, 6))
+        ttk.Combobox(
+            row1,
+            textvariable=self.scan_mode_var,
+            values=["hybrid", "best_first", "full"],
+            width=10,
+            state="readonly",
+        ).pack(side="left", padx=(0, 10))
+
+        ttk.Label(row1, text="Top-K").pack(side="left", padx=(0, 4))
+        ttk.Spinbox(row1, from_=1, to=1000, textvariable=self.scan_top_k_var, width=5).pack(side="left", padx=(0, 10))
+
+        ttk.Label(row1, text="Full every N gen").pack(side="left", padx=(0, 4))
+        ttk.Spinbox(row1, from_=1, to=10000, textvariable=self.scan_full_interval_var, width=6).pack(side="left", padx=(0, 10))
+
+        ttk.Checkbutton(
+            row1,
+            text="Use multiprocessing for new runs",
+            variable=self.use_multiprocessing_var,
         ).pack(side="left", padx=(0, 10))
 
         ttk.Label(row1, text="Repair mode").pack(side="left", padx=(0, 6))
@@ -103,6 +129,7 @@ class MemeticUI:
         ttk.Button(row2, text="Force Delete from DB", command=self._force_delete_from_db).pack(side="left", padx=6)
         ttk.Button(row2, text="Refresh History", command=self._refresh_history).pack(side="left", padx=6)
         ttk.Button(row2, text="Generate Graphs", command=self._generate_graphs).pack(side="left", padx=6)
+        ttk.Button(row2, text="Generate Graphs With Selected Runs", command=self._generate_selected_runs_graphs).pack(side="left", padx=6)
         ttk.Button(row2, text="Stats: Latest Runs", command=self._generate_latest_group_stats).pack(side="left", padx=6)
         ttk.Button(row2, text="Stats: All Runs", command=self._generate_all_group_stats).pack(side="left", padx=6)
         ttk.Button(row2, text="Open Browser Replay", command=self._open_browser_replay).pack(side="left", padx=6)
@@ -119,21 +146,44 @@ class MemeticUI:
         history_frame = ttk.LabelFrame(split, text="Persisted Run History")
         split.add(history_frame, weight=2)
 
-        columns = ("run_id", "network", "algorithm", "status", "started", "ended", "best_paper", "best_gap")
-        self.history_tree = ttk.Treeview(history_frame, columns=columns, show="headings", height=10, selectmode="extended")
+        history_container = ttk.Frame(history_frame)
+        history_container.pack(fill="both", expand=True, padx=6, pady=6)
+
+        columns = ("run_id", "network", "algorithm", "status", "started", "ended", "best_paper", "best_delta_ref")
+        self.history_tree = ttk.Treeview(history_container, columns=columns, show="headings", height=10, selectmode="extended")
         for col in columns:
             self.history_tree.heading(col, text=col)
             self.history_tree.column(col, width=140, stretch=True)
         self.history_tree.column("run_id", width=180)
         self.history_tree.column("started", width=180)
         self.history_tree.column("ended", width=180)
-        self.history_tree.pack(fill="both", expand=True, padx=6, pady=6)
+        history_y_scroll = ttk.Scrollbar(history_container, orient="vertical", command=self.history_tree.yview)
+        history_x_scroll = ttk.Scrollbar(history_container, orient="horizontal", command=self.history_tree.xview)
+        self.history_tree.configure(yscrollcommand=history_y_scroll.set, xscrollcommand=history_x_scroll.set)
+
+        self.history_tree.grid(row=0, column=0, sticky="nsew")
+        history_y_scroll.grid(row=0, column=1, sticky="ns")
+        history_x_scroll.grid(row=1, column=0, sticky="ew")
+        history_container.grid_rowconfigure(0, weight=1)
+        history_container.grid_columnconfigure(0, weight=1)
         self.history_tree.bind("<<TreeviewSelect>>", self._on_history_select)
 
         logs_frame = ttk.LabelFrame(split, text="Logs")
         split.add(logs_frame, weight=3)
-        self.log_text = tk.Text(logs_frame, height=20, wrap="word")
-        self.log_text.pack(fill="both", expand=True, padx=6, pady=6)
+
+        logs_container = ttk.Frame(logs_frame)
+        logs_container.pack(fill="both", expand=True, padx=6, pady=6)
+
+        self.log_text = tk.Text(logs_container, height=20, wrap="none")
+        logs_y_scroll = ttk.Scrollbar(logs_container, orient="vertical", command=self.log_text.yview)
+        logs_x_scroll = ttk.Scrollbar(logs_container, orient="horizontal", command=self.log_text.xview)
+        self.log_text.configure(yscrollcommand=logs_y_scroll.set, xscrollcommand=logs_x_scroll.set)
+
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+        logs_y_scroll.grid(row=0, column=1, sticky="ns")
+        logs_x_scroll.grid(row=1, column=0, sticky="ew")
+        logs_container.grid_rowconfigure(0, weight=1)
+        logs_container.grid_columnconfigure(0, weight=1)
 
         self._refresh_history()
 
@@ -148,6 +198,9 @@ class MemeticUI:
             strict_objective_for_optimization=bool(self.strict_obj_var.get()),
             strict_check_full_population_each_gen=bool(self.full_pop_var.get()),
             repair_mode=self.repair_mode_var.get(),
+            strict_population_scan_mode=str(self.scan_mode_var.get()),
+            strict_population_scan_top_k=int(self.scan_top_k_var.get()),
+            strict_population_full_scan_interval=int(self.scan_full_interval_var.get()),
         )
 
     def _selected_run_ids(self) -> list[str]:
@@ -181,8 +234,14 @@ class MemeticUI:
                 strict_objective_for_optimization=cfg.strict_objective_for_optimization,
                 strict_check_full_population_each_gen=cfg.strict_check_full_population_each_gen,
                 repair_mode=cfg.repair_mode,
+                strict_population_scan_mode=cfg.strict_population_scan_mode,
+                strict_population_scan_top_k=cfg.strict_population_scan_top_k,
+                strict_population_full_scan_interval=cfg.strict_population_full_scan_interval,
             )
-            started_ids.append(self.manager.start_run(run_cfg))
+            if self.use_multiprocessing_var.get():
+                started_ids.append(self.manager.start_run_multiprocess(run_cfg))
+            else:
+                started_ids.append(self.manager.start_run(run_cfg))
 
         run_id = started_ids[-1]
         self.selected_run_id = run_id
@@ -208,11 +267,6 @@ class MemeticUI:
             messagebox.showinfo("Resume Run", "No valid run selected.")
             return
 
-        completed = [rid for rid, status in statuses.items() if status == "completed"]
-        if completed and len(completed) == len(statuses):
-            messagebox.showinfo("Resume Run", "Completed runs cannot be resumed.")
-            return
-
         running = [rid for rid, status in statuses.items() if status == "running"]
         force = False
         if running:
@@ -225,13 +279,23 @@ class MemeticUI:
                 return
 
         resumed = []
-        skipped = []
+        use_multiprocessing = bool(self.use_multiprocessing_var.get())
+        max_gens_override = int(self.gen_var.get()) if int(self.gen_var.get()) > 0 else None
         for run_id, status in statuses.items():
-            if status == "completed":
-                skipped.append(run_id)
-                continue
             try:
-                self.manager.resume_run(run_id, force=force if status == "running" else False)
+                effective_force = force if status == "running" else False
+                if use_multiprocessing:
+                    self.manager.resume_run_multiprocess(
+                        run_id,
+                        force=effective_force,
+                        max_generations_override=max_gens_override,
+                    )
+                else:
+                    self.manager.resume_run(
+                        run_id,
+                        force=effective_force,
+                        max_generations_override=max_gens_override,
+                    )
                 resumed.append(run_id)
             except Exception as exc:
                 messagebox.showerror("Resume Run", f"Failed for {run_id}: {exc}")
@@ -241,8 +305,8 @@ class MemeticUI:
             self.selected_run_id = resumed[-1]
             self._refresh_history()
             self.status_var.set(f"Resumed {len(resumed)} run(s){' (forced)' if force else ''}")
-        elif skipped:
-            messagebox.showinfo("Resume Run", "No resumable runs were selected.")
+        else:
+            messagebox.showinfo("Resume Run", "No runs were resumed.")
 
     def _stop_selected_run(self) -> None:
         run_ids = self._selected_run_ids()
@@ -369,6 +433,32 @@ class MemeticUI:
         except Exception:
             pass
 
+    def _generate_selected_runs_graphs(self) -> None:
+        run_ids = self._selected_run_ids()
+        if not run_ids:
+            messagebox.showinfo("Selected Run Graphs", "Select one or more runs in history first.")
+            return
+
+        try:
+            outputs = self.manager.generate_selected_run_statistics(run_ids)
+        except Exception as exc:
+            messagebox.showerror("Selected Run Graphs", f"Failed: {exc}")
+            return
+
+        if not outputs:
+            messagebox.showinfo(
+                "Selected Run Graphs",
+                "Selected runs have no finite strict-score data to plot yet.",
+            )
+            return
+
+        self.status_var.set(f"Generated selected-run graphs for {len(run_ids)} run(s)")
+        messagebox.showinfo("Selected Run Graphs", "Generated:\n" + "\n".join(str(p) for p in outputs))
+        try:
+            os.startfile(str(outputs[0].parent))
+        except Exception:
+            pass
+
     def _open_solution_viewer(self) -> None:
         selected = self.history_tree.selection()
         if not selected:
@@ -400,7 +490,26 @@ class MemeticUI:
         self._generate_group_stats(latest_only=True)
 
     def _generate_all_group_stats(self) -> None:
-        self._generate_group_stats(latest_only=False)
+        latest_limit = max(2, int(self.parallel_runs_var.get()))
+        try:
+            outputs = self.manager.generate_all_existing_group_statistics(latest_only=False, latest_limit=latest_limit)
+        except Exception as exc:
+            messagebox.showerror("Run Statistics", f"Failed: {exc}")
+            return
+
+        if not outputs:
+            messagebox.showinfo(
+                "Run Statistics",
+                "No existing network groups had at least 2 runs with finite strict-score data.",
+            )
+            return
+
+        self.status_var.set(f"Generated stats for {len(outputs)} algorithm group(s)")
+        messagebox.showinfo("Run Statistics", "Generated:\n" + "\n".join(str(p) for p in outputs))
+        try:
+            os.startfile(str(outputs[0].parent))
+        except Exception:
+            pass
 
     def _generate_group_stats(self, latest_only: bool) -> None:
         network_file = self.network_var.get()
@@ -556,6 +665,38 @@ class MemeticUI:
             except:
                 pass
 
+    def _best_delta_reference_from_history(self, run_id: str) -> Optional[float]:
+        run_row = self.manager.persistence.load_run(run_id)
+        if not run_row:
+            return None
+        network_file = str(run_row.get("network_file", ""))
+        ref = self.manager._runner.reference_scores.get(network_file, {}).get("published_best_universal_score")
+        if ref is None:
+            return None
+        try:
+            ref_value = float(ref)
+        except (TypeError, ValueError):
+            return None
+        if ref_value <= 0.0:
+            return None
+
+        generations = self.manager.persistence.load_generations(run_id)
+        best_feasible = float("inf")
+        for row in generations:
+            score = row.get("best_paper_score")
+            if score is None:
+                continue
+            try:
+                score_val = float(score)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(score_val) and score_val < best_feasible:
+                best_feasible = score_val
+
+        if not np.isfinite(best_feasible):
+            return None
+        return float(100.0 * (best_feasible - ref_value) / ref_value)
+
     def _refresh_live_status(self) -> None:
         if not self.selected_run_id:
             self.status_var.set("No run selected")
@@ -571,19 +712,19 @@ class MemeticUI:
             best_train_text = "n/a" if best_train is None else f"{float(best_train):.3e}"
             self.status_var.set(
                 f"Run {live['run_id']} | status={live['status']} | gen={live['generation']} | "
-                f"best_train={best_train_text} | best_paper={best_paper_text} | gap={gap_text}"
+                f"best_train={best_train_text} | best_paper={best_paper_text} | best_delta_ref={gap_text}"
             )
         else:
             last = self.manager.persistence.load_last_generation(self.selected_run_id)
             if last is None:
                 self.status_var.set(f"Run {self.selected_run_id}: no generation data yet")
             else:
-                gap = last.get("gap_to_published_pct")
+                gap = self._best_delta_reference_from_history(self.selected_run_id)
                 gap_text = "n/a" if gap is None else f"{float(gap):+.2f}%"
                 self.status_var.set(
                     f"Run {self.selected_run_id} | persisted gen={last.get('generation')} | "
                     f"best_train={float(last.get('best_training_fitness', 0.0)):.3e} | "
-                    f"best_paper={float(last.get('best_paper_score', 0.0)):.3e} | gap={gap_text}"
+                    f"best_paper={float(last.get('best_paper_score', 0.0)):.3e} | best_delta_ref={gap_text}"
                 )
 
     def _refresh_loop(self) -> None:
@@ -627,10 +768,16 @@ class MemeticUI:
         except Exception:
             pass
 
-        # Wait for worker threads to drain before destroying Tk.
+        # Wait for worker threads to drain before closing Tk mainloop.
         self._wait_for_threads_then_close(time.time() + 5.0)
 
     def _wait_for_threads_then_close(self, deadline: float) -> None:
+        # Opportunistically join worker threads in small slices.
+        try:
+            self.manager.wait_for_active_threads(0.18)
+        except Exception:
+            pass
+
         try:
             active_ids = self.manager.get_active_run_ids()
         except Exception:
@@ -638,7 +785,10 @@ class MemeticUI:
 
         if not active_ids:
             self.root.quit()
-            self.root.destroy()
+            try:
+                self.root.after(0, self.root.destroy)
+            except Exception:
+                pass
             return
 
         if time.time() >= deadline:
@@ -659,7 +809,13 @@ class MemeticUI:
 def main() -> None:
     root = tk.Tk()
     app = MemeticUI(root)
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

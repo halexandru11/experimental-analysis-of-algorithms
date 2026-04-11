@@ -98,6 +98,20 @@ class BenchmarkRunner:
         return diameters, costs
 
     @staticmethod
+    def _lookup_unit_cost(diameter: float, unit_cost_lookup: Dict[float, float]) -> float:
+        """Lookup unit cost with tolerance to avoid float key mismatch."""
+        d = float(diameter)
+        direct = unit_cost_lookup.get(d)
+        if direct is not None:
+            return float(direct)
+
+        for cand_d, cand_cost in unit_cost_lookup.items():
+            if abs(float(cand_d) - d) <= 1e-7:
+                return float(cand_cost)
+
+        raise KeyError(f"Diameter {d} not found in benchmark catalog")
+
+    @staticmethod
     def _get_min_head_requirement(network_file: str) -> float:
         """Benchmark minimum pressure head requirement in meters."""
         defaults = {
@@ -147,7 +161,16 @@ class BenchmarkRunner:
         try:
             for i, d in enumerate(diameters):
                 pipe = network.pipes_list[i]
-                cost += unit_cost_lookup[float(d)] * pipe.length
+                pipe_length = float(pipe.length)
+                unit_cost = self._lookup_unit_cost(float(d), unit_cost_lookup)
+
+                # Physical sanity guard: strict benchmark costs must be positive finite values.
+                if not np.isfinite(pipe_length) or pipe_length <= 0.0:
+                    raise ValueError(f"Invalid pipe length for {pipe.id}: {pipe.length}")
+                if not np.isfinite(unit_cost) or unit_cost <= 0.0:
+                    raise ValueError(f"Invalid unit cost for diameter {d}: {unit_cost}")
+
+                cost += unit_cost * pipe_length
         except KeyError:
             result = {
                 'paper_score': float('inf'),
@@ -157,6 +180,19 @@ class BenchmarkRunner:
                 'paper_min_pressure': float('-inf'),
                 'paper_eval_ok': 0.0,
                 'paper_eval_note': 'diameter_not_in_benchmark_catalog'
+            }
+            if return_diagnostics:
+                result['paper_diagnostics'] = {}
+            return result
+        except ValueError as e:
+            result = {
+                'paper_score': float('inf'),
+                'paper_cost': float('inf'),
+                'paper_feasible': 0.0,
+                'paper_violation': float('inf'),
+                'paper_min_pressure': float('-inf'),
+                'paper_eval_ok': 0.0,
+                'paper_eval_note': f'invalid_cost_inputs: {e}'
             }
             if return_diagnostics:
                 result['paper_diagnostics'] = {}
@@ -184,16 +220,35 @@ class BenchmarkRunner:
 
             min_head = self._get_min_head_requirement(network_file)
             pressure_ts = results.node['pressure']
-            final_pressure = pressure_ts.iloc[-1]
 
-            junction_names = [j for j in network.junctions.keys() if j in final_pressure.index]
-            junction_pressures = final_pressure.loc[junction_names]
+            junction_names = [j for j in network.junctions.keys() if j in pressure_ts.columns]
+            if not junction_names:
+                raise RuntimeError("No junction pressure results available for strict evaluation")
 
-            shortfalls = np.maximum(0.0, min_head - junction_pressures.values)
-            total_violation = float(np.sum(shortfalls))
-            min_pressure = float(np.min(junction_pressures.values)) if len(junction_pressures.values) > 0 else float('-inf')
+            junction_pressures_ts = pressure_ts.loc[:, junction_names]
+            pressure_matrix = junction_pressures_ts.to_numpy(dtype=float)
+
+            # Strict feasibility over the whole simulation horizon:
+            # every demand node must satisfy the minimum pressure at all report timesteps.
+            shortfall_matrix = np.maximum(0.0, min_head - pressure_matrix)
+            node_worst_shortfalls = np.max(shortfall_matrix, axis=0)
+            total_violation = float(np.sum(node_worst_shortfalls))
+            min_pressure = float(np.min(pressure_matrix)) if pressure_matrix.size > 0 else float('-inf')
             feasible = 1.0 if total_violation <= 1e-9 else 0.0
             score = cost if feasible > 0 else float('inf')
+
+            # A feasible strict score must be a positive finite cost.
+            if feasible > 0.5 and (not np.isfinite(score) or score <= 0.0):
+                return {
+                    'paper_score': float('inf'),
+                    'paper_cost': float('inf'),
+                    'paper_feasible': 0.0,
+                    'paper_violation': float('inf'),
+                    'paper_min_pressure': min_pressure,
+                    'paper_eval_ok': 0.0,
+                    'paper_eval_note': 'invalid_nonpositive_or_nonfinite_feasible_score',
+                    'paper_diagnostics': {} if return_diagnostics else None,
+                }
 
             result = {
                 'paper_score': float(score),
@@ -206,16 +261,29 @@ class BenchmarkRunner:
             }
 
             if return_diagnostics:
+                # Use per-node worst shortfall across all timesteps for diagnostics.
                 deficits = {
-                    node: float(max(0.0, min_head - p))
-                    for node, p in junction_pressures.items()
+                    node: float(node_worst_shortfalls[i])
+                    for i, node in enumerate(junction_names)
                 }
+
+                # Pick the timestep with highest aggregate shortfall to inspect headloss there.
+                timestep_shortfalls = np.sum(shortfall_matrix, axis=1)
+                worst_timestep_idx = int(np.argmax(timestep_shortfalls)) if len(timestep_shortfalls) else -1
+                if worst_timestep_idx >= 0:
+                    headloss_series = results.link['headloss'].iloc[worst_timestep_idx]
+                else:
+                    headloss_series = results.link['headloss'].iloc[-1]
+
                 result['paper_diagnostics'] = {
-                    'junction_pressures': {node: float(p) for node, p in junction_pressures.items()},
+                    'junction_pressures': {
+                        node: float(np.min(junction_pressures_ts[node].to_numpy(dtype=float)))
+                        for node in junction_names
+                    },
                     'junction_deficits': deficits,
                     'link_headloss_abs': {
                         link: float(abs(v))
-                        for link, v in results.link['headloss'].iloc[-1].items()
+                        for link, v in headloss_series.items()
                     }
                 }
 

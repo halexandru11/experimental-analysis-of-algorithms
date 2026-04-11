@@ -2,6 +2,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage{geometry}
 \usepackage{pgfplots}
@@ -406,241 +407,316 @@ The following online repositories provide access to the EPANET (\texttt{.inp}) i
     \item \textbf{Open Water Analytics (GitHub):} Community-maintained benchmarks tailored for modern research tools like Python's WNTR library. \\ \url{https://github.com/OpenWaterAnalytics}
 \end{itemize}
 
-\section{Memetic GA Approach: Detailed Case Study}
+\section{Memetic GA Approach}
 
-This section extends the SOTA review with a detailed implementation case study from the Memetic GA framework. The goal was to build a reproducible memetic GA pipeline that can be evaluated under two layers:
+This section documents the practical system developed in \texttt{Memetic\_GA/Attempt\_005}, so the methodology is not only cited from literature but also explained in a way that can be presented and defended. The goal is to clarify what the implementation does, why it does it, and how to interpret the outputs.
 
-\begin{itemize}
-    \item a fast internal optimization objective for practical search speed,
-    \item a stricter external benchmark-style evaluation aligned with published references when possible.
-\end{itemize}
+\subsection{System Overview}
 
-This two-layer framing follows the standard research recommendation to clearly separate algorithm engineering choices from strict literature comparison claims.
+The implemented pipeline has four layers:
 
-\subsection*{Design Objectives and Experimental Scope}
+\begin{enumerate}
+    \item \textbf{Search layer:} GA and Memetic GA produce candidate pipe diameter vectors.
+    \item \textbf{Hydraulic evaluation layer:} strict benchmark feasibility and score are computed through WNTR/EPANET-style simulation.
+    \item \textbf{Persistence/analysis layer:} run history, generation metrics, and logs are stored in SQLite and exported for plotting.
+    \item \textbf{Experiment operations layer:} lightweight controls are used only to launch/stop/resume experiments and export analysis artifacts.
+\end{enumerate}
 
-The Memetic GA approach uses a strict benchmark set for final reporting:
-\begin{itemize}
-    \item \textbf{TLN.inp} (Two-Loop Network),
-    \item \textbf{hanoi.inp} (Hanoi Network),
-    \item \textbf{BIN.inp} (Balerma Network).
-\end{itemize}
+\subsection{Solution Encoding and Core Data Structures}
 
-These were selected because they are frequently used in WDN metaheuristic literature and have comparatively well-documented benchmark specifications.
+Each candidate solution is a chromosome of integer indices:
 
-\subsection*{How the Memetic GA Works (Algorithmic Details)}
-
-\textbf{Representation.} A solution is an integer chromosome
 \[
-\mathbf{x} = [x_1, x_2, \dots, x_N], \quad x_i \in \{0,1,\dots,K-1\},
+\mathbf{x} = [g_1, g_2, \dots, g_N], \quad g_i \in \{0,1,\dots,K-1\}
 \]
-where $N$ is the number of pipes and each gene $x_i$ is an index into a discrete diameter catalog. This directly enforces feasibility with respect to commercial diameter choices.
 
-\textbf{Population model.} The implementation stores a population of \texttt{Individual} objects. Each object contains:
+where:
 \begin{itemize}
-    \item chromosome (integer vector),
-    \item lazy-evaluated cached fitness,
-    \item evaluator reference for index-to-diameter conversion and scoring.
+    \item $N$ is the number of pipes in the network,
+    \item $K$ is the number of allowed commercial diameters for that benchmark.
 \end{itemize}
 
-\textbf{Initialization.} The initial population is sampled uniformly at random over diameter-index bounds for each pipe.
-
-\textbf{Selection.} Tournament selection (size 3) is used:
+Why integer indices are used instead of direct diameter values:
 \begin{itemize}
-    \item three individuals are sampled uniformly,
-    \item the lowest-fitness candidate wins.
+    \item mutation/crossover are simpler and faster on integers,
+    \item all offspring remain in the discrete benchmark catalog,
+    \item conversion to physical diameters is deterministic during fitness evaluation.
 \end{itemize}
-This gives robust selection pressure while preserving diversity better than deterministic truncation.
 
-\textbf{Crossover.} Uniform crossover is used (gene-wise swap with probability 0.5):
+Main structures used in the implementation:
+\begin{itemize}
+    \item \textbf{Individual:} chromosome, lazy cached fitness value (``lazy'' means fitness is computed only when first needed, then reused until the chromosome changes; this avoids repeating expensive evaluations many times inside selection/sorting),
+    \item \textbf{MemeticGA:} population, operators, history arrays,
+    \item \textbf{RunPersistence (SQLite):} runs table, generations table, logs table,
+    \item \textbf{RunConfig:} network/algorithm/hyperparameter settings.
+\end{itemize}
+
+\subsection{Standard GA vs Memetic GA in This Implementation}
+
+Both variants share the same GA backbone:
+\begin{enumerate}
+    \item \textbf{Tournament selection:} randomly sample a small group of individuals, and keep the best from that group as parent. Example: if 3 individuals are sampled with fitness values $(5.2\times10^6, 4.9\times10^6, 5.4\times10^6)$, the parent is the one with $4.9\times10^6$.
+    \item \textbf{Uniform crossover:} for each gene position, choose gene from parent A or B with probability 0.5. Example with 6 genes: A = [2,4,3,1,5,0], B = [1,4,2,2,3,0], child may become [2,4,2,1,3,0].
+    \item \textbf{Gaussian-like integer mutation:} for each gene (with small probability), add integer noise sampled from a normal distribution around 0, then clip to valid bounds. Example: gene index $g_i=4$, sampled noise $-2$ gives $g_i'=2$; if noise $+10$ and max index is 9, value is clipped to 9. This creates mostly small local edits, with occasional larger jumps.
+    \item \textbf{Elitism:} copy the best current solution directly into next generation so quality never degrades because of random operators.
+\end{enumerate}
+
+The \textbf{difference} is local search:
+\begin{itemize}
+    \item \textbf{Standard GA:} local search intensity is set to zero.
+    \item \textbf{Memetic GA:} offspring may be refined by hill climbing after crossover/mutation.
+\end{itemize}
+
+Hence memetic adds stronger exploitation, while standard GA preserves broader exploration.
+
+\subsection{How Hill Climbing Works (Memetic Part)}
+
+For selected offspring, the local search samples a subset of pipe positions and evaluates one-step neighbor moves in index space (e.g. $g_i \rightarrow g_i - 1$ or $g_i \rightarrow g_i + 1$ when valid). If a neighbor improves fitness, the move is kept.
+
+Conceptually:
 \[
-\text{child}_1[i],\text{child}_2[i] \leftarrow
+g_i' = g_i + \Delta,\quad \Delta \in \{-1,+1\},\quad
+\text{accept if } f(\mathbf{x}') < f(\mathbf{x})
+\]
+
+This produces a Lamarckian effect: improved genes are written back to the offspring chromosome before entering the next population.
+
+\subsection{Objective, Strict Evaluation, and Caching}
+
+Two evaluation notions are used:
+\begin{itemize}
+    \item \textbf{training fitness:} the number used by GA operators (selection, elitism, ranking) to decide which individuals survive and reproduce.
+    \item \textbf{strict paper score:} the benchmark-comparison value reported to compare with published best results.
+\end{itemize}
+
+In this implementation, when strict mode is enabled, training fitness is aligned to strict benchmark evaluation (feasibility-first). Intuitively:
+\begin{itemize}
+    \item feasible candidates are ranked by actual benchmark cost,
+    \item infeasible candidates receive a very large penalty so they are dominated by feasible ones.
+\end{itemize}
+
+In strict mode, the objective is feasibility-first:
+\[
+f(\mathbf{x})=
 \begin{cases}
-(p_1[i], p_2[i]), & \text{with prob. } 0.5,\\
-(p_2[i], p_1[i]), & \text{with prob. } 0.5.
+\text{paper\_cost}(\mathbf{x}) & \text{if feasible} \\
+10^{12}+\text{cost}(\mathbf{x})+10^9\cdot\text{violation}(\mathbf{x}) & \text{if infeasible}
 \end{cases}
 \]
 
-\textbf{Mutation.} Each gene mutates with rate $p_m$ (default 0.1). Mutation is Gaussian in index space:
-\[
-x_i' = \text{clip}(x_i + \lfloor\mathcal{N}(0,1.5)\rfloor,\; 0,\; K-1).
-\]
-Using index-space perturbation is computationally cheap and naturally preserves neighborhood semantics between nearby diameters.
-
-\textbf{Memetic local search (key component).}
-After crossover/mutation, a hill-climbing local search is applied in-place (Lamarckian learning). For each sampled pipe index, one-step neighborhood moves are tested:
+Detailed interpretation of this function:
 \begin{itemize}
-    \item small/medium networks: test $\Delta\in\{-1,+1\}$,
-    \item large networks ($N>100$): conservative upsizing-only neighborhood $\Delta\in\{+1\}$.
-\end{itemize}
-The best improving neighbor is accepted. For runtime control, local search is bounded to at most 20 sampled pipes per iteration and its activation probability is adaptive by generation progress.
-
-\textbf{Elitism and replacement.} The best individual from the current generation is copied unchanged into the next generation; the rest are filled with offspring.
-
-\textbf{Stopping logic.} The run stops by max generations or stagnation (if enabled), with thresholds scaled by network size. For very large instances (BIN), early stopping is disabled in the benchmark script to allow long-horizon search.
-
-\subsection*{Fitness Layers and Why Two Metrics Are Used}
-
-The Memetic GA approach intentionally separates optimization and reporting metrics:
-
-\textbf{Layer 1: Training fitness (fast internal objective).}
-The optimizer minimizes
-\[
-F_{train} = C + P_{proxy},
-\]
-where $C$ is pipe cost from benchmark diameter tables (when available), and $P_{proxy}$ is a simplified penalty based on undersizing and small-diameter overuse. This keeps evaluations fast enough for large-scale experiments.
-
-\textbf{Layer 2: Universal/benchmark-style external score.}
-For reporting and fairer cross-network tracking:
-\[
-S =
-\begin{cases}
-C, & v=0,\\
-C + w\,C_{ref}\,v, & v>0,
-\end{cases}
-\]
-where $v$ is a proxy violation, $w$ is penalty weight, and $C_{ref}$ is a reference scaling cost.
-
-\textbf{Layer 3: Strict paper-style hydraulic check.}
-Final candidates are also evaluated with WNTR/EPANET using benchmark-specific min-head constraints (30 m for TLN/Hanoi, 20 m for BIN). If raw solutions are infeasible, a deterministic repair heuristic performs targeted pipe upsizing and re-evaluation.
-
-This architecture directly addresses a common practical issue in WDN optimization: full hydraulic simulation at every GA evaluation is expensive, but final claims still require hydraulic feasibility checks.
-
-\subsection*{Motivation of Design Choices (Data Structures and Scheme)}
-
-The professor requirement was to motivate data structures and design scheme. The Memetic GA approach choices are motivated as follows:
-
-\begin{itemize}
-    \item \textbf{Integer chromosomes instead of float diameters:} exact discrete pipe catalog compliance, simpler operators, smaller state representation.
-    \item \textbf{Ordered pipe list + dictionary maps in parser:} list supports $O(1)$ index-based GA operations; dictionaries keep named-node access for diagnostics and reporting.
-    \item \textbf{Lazy fitness cache in each individual:} avoids repeated expensive recalculations during selection and local search.
-    \item \textbf{Tournament selection:} robust under noisy penalty landscapes and less sensitive to scaling than roulette.
-    \item \textbf{Uniform crossover:} high mixing for combinatorial diameter assignments where linkage patterns are not known a priori.
-    \item \textbf{Gaussian index mutation:} provides mostly local edits with occasional larger jumps.
-    \item \textbf{Bounded local search:} keeps memetic refinement useful but computationally contained.
-    \item \textbf{Dual evaluation tracks:} enables fast search while preserving scientific rigor in final benchmark reporting.
+    \item The constant $10^{12}$ is a dominance barrier. It makes any infeasible solution numerically much worse than normal feasible costs.
+    \item $\text{cost}(\mathbf{x})$ keeps relative ordering among infeasible solutions (cheaper infeasible may be preferred over expensive infeasible when no feasible exists yet).
+    \item $10^9\cdot\text{violation}(\mathbf{x})$ increases penalty as hydraulic violation grows.
 \end{itemize}
 
-\subsection*{Benchmark Protocol (Memetic GA Approach)}
-
-The same Memetic GA algorithm described above is applied uniformly across all three benchmark instances. The core operators (tournament selection, uniform crossover, Gaussian mutation, Lamarckian local search) remain fixed. Per-network parameterization (population size, generation limits, local-search intensity) is used solely to avoid under-searching larger systems, while benchmark specifications (diameter catalogs, cost tables, hydraulic constraints) are loaded from their respective benchmark definitions.
-
-The benchmark runner enforces a fixed strict set: TLN, Hanoi, BIN. Per-network parameterization is used to avoid under-searching larger systems:
-
+Why both $\text{cost}(\mathbf{x})$ and $\text{violation}(\mathbf{x})$ are needed in the infeasible branch:
 \begin{itemize}
-    \item TLN: population 60, max generations 120, local-search intensity 0.7.
-    \item Hanoi: population 80, max generations 100, local-search intensity 0.8.
-    \item BIN: population 70, max generations 250, local-search intensity 0.8.
+    \item If we used only violation, the search might move toward hydraulically-better designs that are unnecessarily expensive.
+    \item If we used only cost, the search might prefer cheap but severely infeasible designs and fail to approach feasibility.
+    \item Using both gives a useful compromise: reduce violation first, but among similarly infeasible candidates still prefer lower-cost structures.
 \end{itemize}
 
-For BIN, early stopping is disabled so the algorithm can continue long exploitation phases.
+Small numeric example:
+\begin{itemize}
+    \item Candidate A: feasible with paper cost $4.30\times10^6 \Rightarrow f(A)=4.30\times10^6$.
+    \item Candidate B: infeasible with cost $3.90\times10^6$ and violation $0.7$:
+    \[
+    f(B)=10^{12}+3.90\times10^6+10^9\cdot0.7 \approx 1.0007039\times10^{12}
+    \]
+\end{itemize}
+Thus A is always preferred over B, even if B has lower raw cost, because B violates feasibility.
 
-\subsection*{Memetic GA Approach Results (from benchmark\_results.json)}
+How strict feasibility is determined in practice:
+\begin{itemize}
+    \item apply candidate diameters to the EPANET/ WNTR model,
+    \item simulate hydraulics,
+    \item compute pressure shortfall versus required minimum head (i.e., shortfall = $\max(0,\;H_{\min}-H_{\text{actual}})$, so 0 means the constraint is satisfied),
+    \item mark candidate feasible only when shortfall is effectively zero.
+\end{itemize}
 
-Table~\ref{tab:attempt004-results} summarizes the latest recorded strict-track run set in the repository.
+Caching is critical because hydraulic simulation is expensive. The implementation caches strict evaluations by rounded diameter-tuple key, so repeated candidates do not re-run full simulation unnecessarily.
+
+Example cache key idea:
+\[
+(0.3048, 0.2032, 0.2540, \dots)
+\]
+
+If the same tuple appears again in another generation (common in elitism and convergence), the stored score is reused instantly. This improves speed and also stabilizes consistency between training and logging (the same candidate receives the same recorded value, instead of being affected by repeated simulation noise).
+
+\subsection{Feasibility Checking Modes: Full, Best-First, Hybrid}
+
+Three operational modes are exposed:
+\begin{itemize}
+    \item \textbf{full:} evaluate strict feasibility for all individuals every generation.
+    \item \textbf{best-first:} evaluate candidates in fitness order until first feasible is found.
+    \item \textbf{hybrid:} evaluate top-$K$ each generation and force a full scan every $N$ generations.
+\end{itemize}
+
+Interpretation:
+\begin{itemize}
+    \item full gives exact \texttt{feasible\_in\_pop} each generation,
+    \item best-first is fastest but gives less population-level visibility,
+    \item hybrid balances speed and observability.
+\end{itemize}
+
+\subsection{What Top-K and Full-Every-N Mean}
+
+In hybrid mode:
+\begin{itemize}
+    \item \textbf{Top-K} = number of highest-ranked individuals strictly checked every generation,
+    \item \textbf{Full every N gen} = interval for exact full-population strict scan.
+\end{itemize}
+
+Practical effect:
+\begin{itemize}
+    \item smaller $K$ gives faster runs,
+    \item larger $K$ tracks full-mode behavior more closely,
+    \item smaller $N$ gives more frequent exact \texttt{feasible\_in\_pop} counts.
+\end{itemize}
+
+\subsection{Experiment Orchestration}
+
+Operational tooling is intentionally secondary in this work. It is used for reproducible experimentation only:
+\begin{itemize}
+    \item run multiple seeds and both algorithms,
+    \item resume interrupted experiments from checkpoints,
+    \item export per-generation history and summary plots,
+    \item inspect the best chromosome trajectory when needed.
+\end{itemize}
+
+The technical contribution remains the optimization/evaluation pipeline and the resulting benchmark numbers.
+
+\subsection{Graph Outputs}
+
+Typical produced graphs include:
+\begin{itemize}
+    \item convergence curves (training and strict score trends),
+    \item algorithm comparison bars,
+    \item gap-to-published-reference bars,
+    \item feasible fraction curves,
+    \item best-of-best all-runs summary (gap \% and final strict score).
+\end{itemize}
+
+How to explain in presentation:
+\begin{itemize}
+    \item \textbf{strict score down} means better benchmark design,
+    \item \textbf{gap \% near 0} means near published reference,
+    \item \textbf{negative gap \%} means below published comparator under current evaluator,
+    \item \textbf{feasible fraction rising} means the population is learning feasibility, not only one lucky elite.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Convergence_Curves.png}
+\caption{Run statistics across selected networks (convergence and spread).}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png}
+\caption{Best-of-best summary across all runs (gap to published best and final strict score).}
+\end{figure}
+
+\subsection{Observed Results (Concrete Numbers)}
+
+To complement the convergence plots, Table~\ref{tab:attempt005-best-vs-sota} reports concrete best values obtained from the live run history.
 
 \begin{table}[H]
 \centering
-\caption{Memetic GA approach summary on strict benchmark track (TLN, Hanoi, BIN).}
-\label{tab:attempt004-results}
-\begin{tabular}{lrrrrrr}
+\caption{Best strict paper score vs published reference (from live run history).}
+\label{tab:attempt005-best-vs-sota}
+\begin{tabular}{l l r r r}
 \hline
-Network & Pipes & MGA Cost & SGA Cost & Cost Gain & MGA Time (s) & SGA Time (s) \\
+Network & Algorithm & Best score & Published best & Gap (\%) \\
 \hline
-TLN.inp   & 8   & 419000.00   & 465000.00   & 9.89\%  & 60.48  & 24.81 \\
-hanoi.inp & 34  & 3878060.76  & 4025505.86  & 3.66\%  & 2.48   & 0.71  \\
-BIN.inp   & 454 & 5495301.53  & 5589298.87  & 1.68\%  & 460.80 & 172.46 \\
+TLN.inp & Memetic GA  & 419000.0   & 419000.0   & 0.00 \\
+TLN.inp & Standard GA & 420000.0   & 419000.0   & 0.24 \\
+hanoi.inp & Memetic GA  & 6281488.3 & 6081000.0 & 3.30 \\
+hanoi.inp & Standard GA & 6430614.6 & 6081000.0 & 5.75 \\
+BIN.inp & Memetic GA  & 3933733.4 & 1956000.0 & 97.04 \\
+BIN.inp & Standard GA & 4427058.7 & 1956000.0 & 122.41 \\
 \hline
 \end{tabular}
 \end{table}
 
-\textbf{Interpretation.}
+Observations from Table~\ref{tab:attempt005-best-vs-sota}:
 \begin{itemize}
-    \item Memetic GA outperforms Standard GA on all three strict-track instances in internal/universal cost terms.
-    \item Relative gain decreases with scale (about 9.89\% $\rightarrow$ 3.66\% $\rightarrow$ 1.68\%), which is expected when both methods become constrained by harder feasibility landscapes.
-    \item Runtime overhead is significant on large networks because local search is active; this is the expected exploration-exploitation trade-off.
+    \item On TLN, Memetic GA reaches the published best value exactly (0.00\% gap).
+    \item On Hanoi, Memetic GA improves noticeably over Standard GA (3.30\% vs 5.75\% gap) and is nearly competitive with the literature reference.
+    \item On BIN (Balerma), both variants remain significantly above the published reference, but Memetic GA outperforms Standard GA (97.04\% vs 122.41\% gap), suggesting the need for alternative strategies on very large networks.
 \end{itemize}
 
-\subsection*{Strict Paper-Score Notes}
+To show stability (not only single best runs), Table~\ref{tab:attempt005-run-distribution} summarizes the distribution of strict scores over all finite recorded runs per network/algorithm pair.
 
-The Memetic GA approach also stores published-best reference values for strict comparison:
+\begin{table}[H]
+\centering
+\caption{Run distribution summary from live history (finite strict scores only).}
+\label{tab:attempt005-run-distribution}
+\begin{tabular}{l l r r r r}
+\hline
+Network & Algorithm & Runs & Mean score & Min score & Max score \\
+\hline
+TLN.inp & Memetic GA  & 20 & 424150.0   & 419000.0   & 448000.0 \\
+TLN.inp & Standard GA & 1  & 420000.0   & 420000.0   & 420000.0 \\
+hanoi.inp & Memetic GA  & 17 & 6778049.4 & 6281488.3 & 7581995.4 \\
+hanoi.inp & Standard GA & 1  & 6430614.6 & 6430614.6 & 6430614.6 \\
+BIN.inp & Memetic GA  & 14 & 4234735.2 & 3933733.4 & 4717918.7 \\
+BIN.inp & Standard GA & 1  & 4427058.7 & 4427058.7 & 4427058.7 \\
+\hline
+\end{tabular}
+\end{table}
+
+These numbers indicate that the current implementation is already competitive on smaller benchmarks, while large-network performance (BIN) is still the main gap to state-of-the-art.
+
+\subsection{Browser Replay Visualization}
+
+Browser replay exports an HTML visualization for generation-by-generation inspection:
 \begin{itemize}
-    \item TLN: 419000,
-    \item Hanoi: 6081000,
-    \item BIN (Balerma): 1956000.
+    \item pipe colors represent diameter,
+    \item node colors represent elevation,
+    \item slider controls generation playback,
+    \item side panel shows key metrics and run metadata,
+    \item legend bars explain color scales explicitly.
 \end{itemize}
 
-Observed behavior in current runs:
+This helps explain results to non-specialists because optimization history becomes visually inspectable instead of only numerical.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Browser_Replay.png}
+\caption{Browser replay visualization with generation slider and legend bars.}
+\end{figure}
+
+\subsection{Limitations and Responsible Interpretation}
+
+The strict benchmark result is \textbf{hydraulic feasibility under benchmark assumptions}, not a full real-world engineering sign-off. Real deployment still needs calibration against measured data, operational constraints, reliability/transient checks, and constructability review.
+
+A current practical limitation is per-generation runtime: a single generation can be relatively slow, which limits the total number of generations that can be explored under fixed compute time.
+
+\subsection{Summary}
+
+The implemented system provides a practical, reproducible, and transparent framework for GA-based WDN optimization research:
+\begin{enumerate}
+    \item practical memetic and standard GA implementation over benchmark networks,
+    \item strict EPANET/WNTR-style feasibility-first scoring with caching,
+    \item configurable feasibility scan modes (full, best-first, hybrid),
+    \item reproducible run persistence and resume workflows,
+    \item concrete benchmark reporting with explicit best-vs-SOTA tables.
+\end{enumerate}
+
+\subsection{Future Improvements}
+
+The most relevant next steps, based on the observed results, are:
 \begin{itemize}
-    \item \textbf{TLN:} strict paper-feasible score reaches 419000 (matches reference).
-    \item \textbf{Hanoi:} raw designs are often infeasible under strict hydraulic checks and require repair; repaired paper score is around 7763933.22, above the published best.
-    \item \textbf{BIN:} the raw optimized solution (internal training objective) achieves a cost of €5.6M but violates strict hydraulic constraints. After targeted upsizing repair to achieve feasibility, the final solution cost is approximately €11.7M, representing a gap of $+496\%$ to the published reference of €1.956M. This gap reflects both the cost of achieving hydraulic feasibility on a large network and differences in cost model assumptions between the implementation and original benchmark. Notably, a random feasible solution (without optimization) would typically incur gaps of $+700\%$ to $+1200\%$, indicating that the memetic GA's optimization phase meaningfully drives toward lower-cost feasible designs despite the large absolute gap.
+    \item \textbf{Faster generation cycle:} reduce per-generation runtime so we can run more generations within the same compute budget.
+    \item \textbf{Strengthen large-network search (BIN):} adaptive diversification and restart policies tuned for very large design spaces.
+    \item \textbf{Increase statistical robustness:} balanced run counts for both algorithms on each benchmark (not only one Standard GA run).
+    \item \textbf{Budget-normalized benchmarking:} compare algorithms at equal evaluation budgets (objective calls/time), not only equal generation counts.
+    \item \textbf{Hydraulic evaluation acceleration:} stronger caching and parallel strict checks to allow deeper runs without prohibitive time.
+    \item \textbf{Ablation studies:} isolate impact of local search intensity, scan mode, and repair strategy on feasibility and final cost.
 \end{itemize}
-
-This illustrates an important distinction: internal objective improvements do not automatically imply strict publishable equivalence unless hydraulic assumptions and benchmark definitions are fully matched. However, when the algorithm achieves strict feasibility—even at a large gap—this remains a publishable and rigorous claim distinct from infeasible (infinite-cost) results.
-
-\subsection*{Detailed Explanation of the Generated Graphs}
-
-The Memetic GA approach generates six result figures.
-
-\textbf{1) \texttt{01\_convergence\_curves.png}.}
-This plot shows best and average trajectories for both algorithms, with log-scaled y-axis. The log axis is necessary because early generations can include very large penalty values that would flatten the visible late-stage improvements on linear scale. In the provided run, Memetic GA shows steeper early descent on TLN and Hanoi.
-
-\textbf{2) \texttt{02\_algorithm\_comparison.png}.}
-Left panel compares mean costs by network; right panel visualizes signed percentage cost advantage defined as
-\[
-\%\Delta = 100\cdot\frac{C_{SGA}-C_{MGA}}{C_{SGA}}.
-\]
-Positive bars indicate Memetic GA is cheaper.
-
-\textbf{3) \texttt{03\_network\_difficulty\_analysis.png}.}
-A 2x2 diagnostic dashboard:
-\begin{itemize}
-    \item pipes vs improvement,
-    \item junctions vs improvement,
-    \item runtime comparison,
-    \item solution variance (std-dev) when multiple runs are available.
-\end{itemize}
-This figure is intended to connect algorithm behavior with problem scale and stability.
-
-\textbf{4) \texttt{04\_solution\_details.png}.}
-Per-run traces for each benchmark show best cost and average selected diameter, helping diagnose whether improvements come from coherent design shifts (e.g., systematic downsizing/upsizing) or random drift.
-
-\textbf{5) \texttt{05\_final\_universal\_vs\_published.png}.}
-Three-way bars compare Memetic GA, Standard GA, and published reference values. If strict paper-score is non-finite for an algorithm, the plotting pipeline falls back to universal score to preserve visual comparability while still flagging strict infeasibility.
-
-\textbf{6) \texttt{06\_final\_gap\_to\_published\_hist.png}.}
-Direct gap-to-reference percentages:
-\[
-\text{gap}(\%) = 100\cdot\frac{S_{alg}-S_{pub}}{S_{pub}}.
-\]
-Zero indicates parity with published best; positive values indicate the algorithm is worse than the reference; missing/invalid values indicate strict infeasibility.
-
-\subsection*{How This Addresses the Assignment Requirement}
-
-The assignment requirement was:
-\begin{itemize}
-    \item motivate data structures and design choices,
-    \item test strategies on benchmark instances,
-    \item report results clearly.
-\end{itemize}
-
-The Memetic GA approach satisfies this by:
-\begin{itemize}
-    \item documenting representation/operator/runtime rationale,
-    \item using a fixed strict benchmark set (TLN, Hanoi, BIN),
-    \item reporting both internal optimization and strict external metrics,
-    \item providing graph-based diagnostics and per-network summaries.
-\end{itemize}
-
-\textbf{Recommended report framing.}
-For final write-up clarity, keep two result layers explicit:
-\begin{itemize}
-    \item \textbf{strict comparison claims} (only when assumptions and feasibility fully match benchmark definitions),
-    \item \textbf{exploratory engineering claims} (speed, convergence behavior, ablation gains, scalability trends).
-\end{itemize}
-
-This avoids overclaiming while still showing meaningful algorithmic contributions.
 
 \begin{thebibliography}{99}
 
