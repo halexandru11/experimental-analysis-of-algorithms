@@ -129,6 +129,7 @@ class MemeticUI:
         ttk.Button(row2, text="Force Delete from DB", command=self._force_delete_from_db).pack(side="left", padx=6)
         ttk.Button(row2, text="Refresh History", command=self._refresh_history).pack(side="left", padx=6)
         ttk.Button(row2, text="Generate Graphs", command=self._generate_graphs).pack(side="left", padx=6)
+        ttk.Button(row2, text="Generate Graphs With Selected Runs", command=self._generate_selected_runs_graphs).pack(side="left", padx=6)
         ttk.Button(row2, text="Stats: Latest Runs", command=self._generate_latest_group_stats).pack(side="left", padx=6)
         ttk.Button(row2, text="Stats: All Runs", command=self._generate_all_group_stats).pack(side="left", padx=6)
         ttk.Button(row2, text="Open Browser Replay", command=self._open_browser_replay).pack(side="left", padx=6)
@@ -145,21 +146,44 @@ class MemeticUI:
         history_frame = ttk.LabelFrame(split, text="Persisted Run History")
         split.add(history_frame, weight=2)
 
+        history_container = ttk.Frame(history_frame)
+        history_container.pack(fill="both", expand=True, padx=6, pady=6)
+
         columns = ("run_id", "network", "algorithm", "status", "started", "ended", "best_paper", "best_delta_ref")
-        self.history_tree = ttk.Treeview(history_frame, columns=columns, show="headings", height=10, selectmode="extended")
+        self.history_tree = ttk.Treeview(history_container, columns=columns, show="headings", height=10, selectmode="extended")
         for col in columns:
             self.history_tree.heading(col, text=col)
             self.history_tree.column(col, width=140, stretch=True)
         self.history_tree.column("run_id", width=180)
         self.history_tree.column("started", width=180)
         self.history_tree.column("ended", width=180)
-        self.history_tree.pack(fill="both", expand=True, padx=6, pady=6)
+        history_y_scroll = ttk.Scrollbar(history_container, orient="vertical", command=self.history_tree.yview)
+        history_x_scroll = ttk.Scrollbar(history_container, orient="horizontal", command=self.history_tree.xview)
+        self.history_tree.configure(yscrollcommand=history_y_scroll.set, xscrollcommand=history_x_scroll.set)
+
+        self.history_tree.grid(row=0, column=0, sticky="nsew")
+        history_y_scroll.grid(row=0, column=1, sticky="ns")
+        history_x_scroll.grid(row=1, column=0, sticky="ew")
+        history_container.grid_rowconfigure(0, weight=1)
+        history_container.grid_columnconfigure(0, weight=1)
         self.history_tree.bind("<<TreeviewSelect>>", self._on_history_select)
 
         logs_frame = ttk.LabelFrame(split, text="Logs")
         split.add(logs_frame, weight=3)
-        self.log_text = tk.Text(logs_frame, height=20, wrap="word")
-        self.log_text.pack(fill="both", expand=True, padx=6, pady=6)
+
+        logs_container = ttk.Frame(logs_frame)
+        logs_container.pack(fill="both", expand=True, padx=6, pady=6)
+
+        self.log_text = tk.Text(logs_container, height=20, wrap="none")
+        logs_y_scroll = ttk.Scrollbar(logs_container, orient="vertical", command=self.log_text.yview)
+        logs_x_scroll = ttk.Scrollbar(logs_container, orient="horizontal", command=self.log_text.xview)
+        self.log_text.configure(yscrollcommand=logs_y_scroll.set, xscrollcommand=logs_x_scroll.set)
+
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+        logs_y_scroll.grid(row=0, column=1, sticky="ns")
+        logs_x_scroll.grid(row=1, column=0, sticky="ew")
+        logs_container.grid_rowconfigure(0, weight=1)
+        logs_container.grid_columnconfigure(0, weight=1)
 
         self._refresh_history()
 
@@ -404,6 +428,32 @@ class MemeticUI:
         messagebox.showinfo("Generate Graphs", f"Generated:\n{output_lines}")
 
         # Open output folder for convenience on Windows.
+        try:
+            os.startfile(str(outputs[0].parent))
+        except Exception:
+            pass
+
+    def _generate_selected_runs_graphs(self) -> None:
+        run_ids = self._selected_run_ids()
+        if not run_ids:
+            messagebox.showinfo("Selected Run Graphs", "Select one or more runs in history first.")
+            return
+
+        try:
+            outputs = self.manager.generate_selected_run_statistics(run_ids)
+        except Exception as exc:
+            messagebox.showerror("Selected Run Graphs", f"Failed: {exc}")
+            return
+
+        if not outputs:
+            messagebox.showinfo(
+                "Selected Run Graphs",
+                "Selected runs have no finite strict-score data to plot yet.",
+            )
+            return
+
+        self.status_var.set(f"Generated selected-run graphs for {len(run_ids)} run(s)")
+        messagebox.showinfo("Selected Run Graphs", "Generated:\n" + "\n".join(str(p) for p in outputs))
         try:
             os.startfile(str(outputs[0].parent))
         except Exception:

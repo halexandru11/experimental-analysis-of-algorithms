@@ -129,6 +129,15 @@ class InteractiveRunManager:
         )
         return visualizer.generate_all_existing_group_statistics(latest_only=latest_only, latest_limit=latest_limit)
 
+    def generate_selected_run_statistics(self, run_ids: List[str]) -> List[Path]:
+        output_dir = self.attempt5_dir / "results"
+        visualizer = HistoryVisualizer(
+            self.persistence,
+            output_dir=output_dir,
+            reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
+        )
+        return visualizer.plot_selected_runs_statistics(run_ids)
+
     def delete_runs(self, run_ids: List[str]) -> int:
         if not run_ids:
             return 0

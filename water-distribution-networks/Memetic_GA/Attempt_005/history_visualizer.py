@@ -304,6 +304,121 @@ class HistoryVisualizer:
             run_payloads.append({"run_id": r.run_id, "y": self._strict_best_so_far(y_raw)})
         return run_payloads
 
+    def _best_run_for_group(self, network_file: str, algorithm: str) -> Optional[Dict]:
+        """Return best run payload (lowest strict best score) for network+algorithm."""
+        rows = self.persistence.list_runs(limit=5000)
+        selected = [
+            r for r in rows
+            if r.network_file == network_file and r.algorithm == algorithm and r.status in ("completed", "stopped", "running")
+        ]
+        best_payload: Optional[Dict] = None
+        best_score = float("inf")
+
+        for r in selected:
+            gens = self.persistence.load_generations(r.run_id)
+            y_raw = [
+                float(g["best_paper_score"])
+                for g in gens
+                if g.get("best_paper_score") is not None and np.isfinite(float(g["best_paper_score"]))
+            ]
+            if not y_raw:
+                continue
+
+            strict_series = self._strict_best_so_far(y_raw)
+            final_score = float(strict_series[-1]) if strict_series else float("inf")
+            if not np.isfinite(final_score):
+                continue
+
+            if final_score < best_score:
+                best_score = final_score
+                best_payload = {
+                    "run_id": r.run_id,
+                    "network_file": network_file,
+                    "algorithm": algorithm,
+                    "final_score": final_score,
+                    "gens": gens,
+                }
+
+        return best_payload
+
+    def plot_best_of_best_summary(self) -> Optional[Path]:
+        """
+        Plot best run per (network, algorithm) group with:
+        - gap to published best (%)
+        - final strict best score (benchmark currency)
+        """
+        payloads: List[Dict] = []
+        for net in NETWORK_ORDER:
+            for algo in ALGO_ORDER:
+                best = self._best_run_for_group(net, algo)
+                if best is None:
+                    continue
+                gap = self._last_finite_gap(net, best["gens"])
+                payloads.append({
+                    **best,
+                    "gap_pct": gap,
+                })
+
+        if not payloads:
+            return None
+
+        labels = [f"{p['network_file']}\n{ALGO_LABEL.get(p['algorithm'], p['algorithm'])}" for p in payloads]
+        x = np.arange(len(payloads))
+
+        fig, (ax_gap, ax_score) = plt.subplots(1, 2, figsize=(16, 6))
+
+        # Left: gap-to-published-best (%).
+        gap_vals = [p["gap_pct"] if p.get("gap_pct") is not None else np.nan for p in payloads]
+        gap_colors = [ALGO_COLOR.get(p["algorithm"], "#4b5563") for p in payloads]
+        bars_gap = ax_gap.bar(x, gap_vals, color=gap_colors, alpha=0.9)
+        ax_gap.axhline(0.0, color="black", linewidth=1.2)
+        ax_gap.set_xticks(x)
+        ax_gap.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
+        ax_gap.set_ylabel("Gap to published best (%)")
+        ax_gap.set_title("Best-of-Best Gap by Network and Algorithm")
+        ax_gap.grid(True, axis="y", alpha=0.3)
+
+        for bar, val in zip(bars_gap, gap_vals):
+            if not np.isfinite(val):
+                continue
+            ax_gap.text(
+                bar.get_x() + bar.get_width() / 2,
+                val,
+                f"{val:+.2f}%",
+                ha="center",
+                va="bottom" if val >= 0 else "top",
+                fontsize=8,
+            )
+
+        # Right: final strict best score (benchmark currency).
+        score_vals = [float(p["final_score"]) for p in payloads]
+        score_colors = [ALGO_COLOR.get(p["algorithm"], "#4b5563") for p in payloads]
+        bars_score = ax_score.bar(x, score_vals, color=score_colors, alpha=0.9)
+        ax_score.set_xticks(x)
+        ax_score.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
+        ax_score.set_ylabel("Final strict best score (benchmark currency)")
+        ax_score.set_title("Best-of-Best Final Strict Score")
+        ax_score.grid(True, axis="y", alpha=0.3)
+        ax_score.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+
+        for bar, val in zip(bars_score, score_vals):
+            ax_score.text(
+                bar.get_x() + bar.get_width() / 2,
+                val,
+                f"{val:.2e}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                rotation=90,
+            )
+
+        fig.suptitle("Attempt_005 Stats: Best-of-Best Across All Runs", fontsize=12)
+        fig.tight_layout()
+        out = self.output_dir / "12_stats_best_of_best_summary.png"
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return out
+
     def _available_networks_for_algorithm(self, algorithm: str) -> List[str]:
         rows = self.persistence.list_runs(limit=5000)
         available = []
@@ -461,4 +576,94 @@ class HistoryVisualizer:
             )
             if out is not None:
                 outputs.append(out)
+
+        # For "all runs" view, also include best-of-best summary across groups.
+        if not latest_only:
+            best_summary = self.plot_best_of_best_summary()
+            if best_summary is not None:
+                outputs.append(best_summary)
         return outputs
+
+    def plot_selected_runs_statistics(self, run_ids: List[str]) -> List[Path]:
+        selected = [str(rid) for rid in run_ids if str(rid).strip()]
+        if not selected:
+            return []
+
+        payloads = []
+        for run_id in selected:
+            run = self.persistence.load_run(run_id)
+            if not run:
+                continue
+
+            gens = self.persistence.load_generations(run_id)
+            finite_scores = [
+                float(g["best_paper_score"])
+                for g in gens
+                if g.get("best_paper_score") is not None and np.isfinite(float(g.get("best_paper_score")))
+            ]
+            if not finite_scores:
+                continue
+
+            y = self._strict_best_so_far(finite_scores)
+            final_best = float(y[-1]) if y else float("inf")
+            payloads.append(
+                {
+                    "run_id": run_id,
+                    "network": str(run.get("network_file") or "?"),
+                    "algorithm": str(run.get("algorithm") or "?"),
+                    "y": y,
+                    "final": final_best,
+                }
+            )
+
+        if not payloads:
+            return []
+
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        ax_curve, ax_bar = axes
+
+        # Left panel: strict best-so-far curves by selected run.
+        for idx, p in enumerate(payloads):
+            x = np.arange(1, len(p["y"]) + 1)
+            color = plt.cm.tab20(idx % 20)
+            label = f"{p['run_id']} | {p['network']} | {p['algorithm']}"
+            ax_curve.plot(x, p["y"], linewidth=2.0, color=color, label=label)
+
+        ax_curve.set_xlabel("Generation (finite-score points)")
+        ax_curve.set_ylabel("Best strict paper score")
+        ax_curve.set_yscale("log")
+        ax_curve.set_title("Selected Runs: Strict Best-So-Far Convergence")
+        ax_curve.grid(True, alpha=0.3)
+        ax_curve.legend(fontsize=7)
+
+        # Right panel: final strict best score for each selected run.
+        ordered = sorted(payloads, key=lambda p: p["final"])
+        labels = [f"{p['run_id']}\n{p['network']}|{p['algorithm']}" for p in ordered]
+        values = [p["final"] for p in ordered]
+        x = np.arange(len(ordered))
+        bars = ax_bar.bar(x, values, color="#2E86AB", alpha=0.9)
+        ax_bar.set_xticks(x)
+        ax_bar.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
+        ax_bar.set_ylabel("Final strict best score")
+        ax_bar.set_title("Selected Runs: Final Strict Score")
+        ax_bar.grid(True, axis="y", alpha=0.3)
+        ax_bar.ticklabel_format(style="sci", axis="y", scilimits=(0, 0))
+
+        for b, val in zip(bars, values):
+            ax_bar.text(
+                b.get_x() + b.get_width() / 2,
+                b.get_height(),
+                f"{val:.2e}",
+                ha="center",
+                va="bottom",
+                fontsize=7,
+                rotation=90,
+            )
+
+        fig.suptitle(f"Selected Run Statistics (n={len(payloads)})", fontsize=12)
+        fig.tight_layout()
+
+        out = self.output_dir / f"12_stats_selected_runs_{len(payloads)}.png"
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return [out]
