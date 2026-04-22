@@ -16,7 +16,7 @@ class DifferentialEvolutionConfig:
 
 @dataclass(slots=True)
 class DifferentialEvolutionResult:
-    best_vector: np.ndarray
+    best_vectors: list[np.ndarray]
     best_fitness: float
     history: list[dict[str, float]]
 
@@ -32,21 +32,28 @@ def run_differential_evolution(
     low = bounds[:, 0]
     high = bounds[:, 1]
 
-    population = rng.uniform(low=low, high=high, size=(config.population_size, dimension))
-    fitness = np.array([objective(individual) for individual in population], dtype=float)
+    population = rng.uniform(
+        low=low, high=high, size=(config.population_size, dimension)
+    )
+    fitness = np.array(
+        [objective(individual) for individual in population], dtype=float
+    )
 
     best_idx = int(np.argmin(fitness))
     best_vector = population[best_idx].copy()
     best_fitness = float(fitness[best_idx])
 
     history: list[dict[str, float]] = []
+    best_vectors: list[np.ndarray] = []
 
     for generation in range(config.generations):
         for i in range(config.population_size):
             choices = [idx for idx in range(config.population_size) if idx != i]
             r1, r2, r3 = rng.choice(choices, size=3, replace=False)
 
-            mutant = population[r1] + config.mutation_factor * (population[r2] - population[r3])
+            mutant = population[r1] + config.mutation_factor * (
+                population[r2] - population[r3]
+            )
             mutant = np.clip(mutant, low, high)
 
             crossover_mask = rng.random(dimension) < config.crossover_rate
@@ -71,9 +78,10 @@ def run_differential_evolution(
                 "std_fitness": float(np.std(fitness)),
             }
         )
+        best_vectors.append(best_vector.copy())
         if progress_callback is not None:
             progress_callback(generation + 1, best_fitness)
 
     return DifferentialEvolutionResult(
-        best_vector=best_vector, best_fitness=best_fitness, history=history
+        best_vectors=best_vectors, best_fitness=best_fitness, history=history
     )

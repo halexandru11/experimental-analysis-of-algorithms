@@ -21,6 +21,9 @@ from inp_parser import InpFileParser
 from plot_results import generate_plots
 
 
+run_ids = [4, 12, 14]
+
+
 def _smallest_instance_by_pipe_count(data_dir: Path) -> Path:
     candidates: list[tuple[int, Path]] = []
     for inp_path in sorted(data_dir.glob("*.inp")):
@@ -174,7 +177,7 @@ def _run_single_experiment_worker(
         return value
 
     try:
-        seed = 10_000 + run_id
+        seed = 10_000 + run_ids[run_id - 1]
         rng = np.random.default_rng(seed)
 
         result = run_differential_evolution(
@@ -205,7 +208,7 @@ def _run_single_experiment_worker(
             "best_cost": best_cost,
             "run_summary": run_summary,
             "history": result.history,
-            "best_vector": result.best_vector,
+            "best_vectors": result.best_vectors,
         }
     finally:
         if temp_inp and temp_inp.exists():
@@ -278,8 +281,8 @@ def main() -> None:
     config = DifferentialEvolutionConfig(
         generations=12000,
         population_size=50,
-        mutation_factor=0.65,
-        crossover_rate=0.85,
+        mutation_factor=0.5,
+        crossover_rate=0.8,
     )
     runs = 3
 
@@ -446,8 +449,7 @@ def main() -> None:
                 break
         _render_progress()
 
-    # max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
-    max_workers = 2
+    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
     progress_thread = (
         threading.Thread(target=_progress_renderer_worker, daemon=True)
         if progress_enabled
@@ -485,7 +487,7 @@ def main() -> None:
                     progress_state,
                     progress_lock,
                 ): run_id
-                for run_id in [4, 12, 14]
+                for run_id in range(1, runs + 1)
             }
             for future in as_completed(futures):
                 run_payload = future.result()
@@ -493,7 +495,7 @@ def main() -> None:
                 best_cost = float(run_payload["best_cost"])
                 run_summary = run_payload["run_summary"]
                 history = run_payload["history"]
-                best_vector = run_payload["best_vector"]
+                best_vectors = run_payload["best_vectors"]
 
                 best_costs.append(best_cost)
                 run_summaries.append(run_summary)  # type: ignore[arg-type]
@@ -506,9 +508,11 @@ def main() -> None:
                     run_durations_seconds.append(float(finished_elapsed_seconds))
 
                 _write_csv(results_dir / f"run_{run_id:02d}_history.csv", history)  # type: ignore[arg-type]
-                (results_dir / f"run_{run_id:02d}_best_vector.csv").write_text(
-                    ",".join(str(value) for value in best_vector) + "\n",  # type: ignore[arg-type]
-                    encoding="utf-8",
+                lines = [
+                    ",".join(str(float(value)) for value in vec) for vec in best_vectors
+                ]
+                (results_dir / f"run_{run_id:02d}_best_vectors.csv").write_text(
+                    "\n".join(lines) + "\n", encoding="utf-8"
                 )
     finally:
         stop_progress_render.set()
