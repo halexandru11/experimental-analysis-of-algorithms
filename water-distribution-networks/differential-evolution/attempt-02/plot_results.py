@@ -360,55 +360,135 @@ def generate_group_comparisons(
             print(f"Not enough usable folders for prefix {prefix}")
             continue
 
-        # align to shortest generation length
+        # derive a population value from folder names to include in the title, if possible
+        pop_val = None
+        for name, _, _ in collected:
+            parts = name.split("-")
+            if len(parts) >= 3:
+                try:
+                    pop_val = int(parts[2])
+                    break
+                except Exception:
+                    continue
+
+        # align to shortest generation length (we will slice on this base length)
         min_len = min(len(g[1]) for g in collected)
-        x = collected[0][1][:min_len]
+        base_x = collected[0][1][:min_len]
 
-        # prepare curves per folder
-        median_curves = {}
-        min_curves = {}
-        max_curves = {}
-        for name, gens, matrix in collected:
-            mat = matrix[:, :min_len]
-            median_curves[name] = np.median(mat, axis=0)
-            min_curves[name] = np.min(mat, axis=0)
-            max_curves[name] = np.max(mat, axis=0)
+        # prepare concise labels parsed from folder names
+        labels: dict[str, str] = {}
+        for name, _, _ in collected:
+            parts = name.split("-")
+            if len(parts) >= 5:
+                try:
+                    mut = int(parts[3])
+                    cr = int(parts[4])
+                    labels[name] = f"F={mut}% CR={cr}%"
+                except Exception:
+                    labels[name] = name
+            else:
+                labels[name] = name
 
-        # plotting helper
-        def _plot_curve_set(
-            curves: dict, title: str, fname: Path, ylabel: str = "Cost"
+        def _plot(
+            curves: dict,
+            x_vals: np.ndarray,
+            title: str,
+            fname: Path,
+            ylabel: str = "Cost",
+            log_scale: bool = False,
         ):
             plt.figure(figsize=(10, 6))
             for name, curve in curves.items():
-                plt.plot(x, curve, label=name)
+                plt.plot(x_vals, curve, label=labels.get(name, name))
             plt.xlabel("Generation")
             plt.ylabel(ylabel)
-            plt.title(title)
-            plt.grid(True, alpha=0.3)
+            if pop_val is not None:
+                plt.title(f"{title} (pop={pop_val})")
+            else:
+                plt.title(title)
+            if log_scale:
+                plt.yscale("log")
+                plt.grid(True, alpha=0.3, which="both")
+            else:
+                plt.grid(True, alpha=0.3)
             plt.legend()
             plt.tight_layout()
             plt.savefig(fname, dpi=200)
             plt.close()
 
-        out_median = results_root / f"comparison_{prefix}_median.png"
-        out_best = results_root / f"comparison_{prefix}_best.png"
-        out_worst = results_root / f"comparison_{prefix}_worst.png"
+        # create a comparisons directory under results_root
+        comp_root = results_root / "comparisons"
+        comp_root.mkdir(parents=True, exist_ok=True)
 
-        _plot_curve_set(
-            median_curves,
-            f"{prefix} - median convergence across parameterizations",
-            out_median,
-        )
-        _plot_curve_set(
-            min_curves,
-            f"{prefix} - best (min) convergence across parameterizations",
-            out_best,
-        )
-        _plot_curve_set(
-            max_curves,
-            f"{prefix} - worst (max) convergence across parameterizations",
-            out_worst,
-        )
+        # produce combined plots for several trims and both linear and log scales
+        trims = [0.0, 0.10, 0.15, 0.30]
+        for trim in trims:
+            start_idx = int(min_len * trim)
+            x = base_x[start_idx:]
+
+            # compute curves for this trimmed window
+            median_curves = {}
+            min_curves = {}
+            max_curves = {}
+            for name, gens, matrix in collected:
+                mat = matrix[:, :min_len]
+                mat = mat[:, start_idx:]
+                median_curves[name] = np.median(mat, axis=0)
+                min_curves[name] = np.min(mat, axis=0)
+                max_curves[name] = np.max(mat, axis=0)
+
+            trim_suffix = f"_trim{int(trim * 100)}" if trim and trim > 0.0 else ""
+
+            # Combined linear plot: median line + shaded min/max band per parameterization
+            out_combined = comp_root / f"comparison_{prefix}_combined{trim_suffix}.png"
+            plt.figure(figsize=(10, 6))
+            for name in median_curves:
+                med = median_curves[name]
+                lo = min_curves[name]
+                hi = max_curves[name]
+                plt.plot(x, med, label=labels.get(name, name))
+                plt.fill_between(x, lo, hi, alpha=0.15)
+            if pop_val is not None:
+                plt.title(
+                    f"{prefix} - median and min/max across parameterizations (pop={pop_val})"
+                )
+            else:
+                plt.title(f"{prefix} - median and min/max across parameterizations")
+            plt.xlabel("Generation")
+            plt.ylabel("Cost")
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(out_combined, dpi=200)
+            plt.close()
+
+            # Combined log-scale plot
+            out_combined_log = (
+                comp_root / f"comparison_{prefix}_combined_log{trim_suffix}.png"
+            )
+            plt.figure(figsize=(10, 6))
+            for name in median_curves:
+                med = np.maximum(median_curves[name], 1e-12)
+                lo = np.maximum(min_curves[name], 1e-12)
+                hi = np.maximum(max_curves[name], 1e-12)
+                plt.plot(x, med, label=labels.get(name, name))
+                plt.fill_between(x, lo, hi, alpha=0.15)
+            if pop_val is not None:
+                plt.title(
+                    f"{prefix} - median and min/max across parameterizations (pop={pop_val}) (log)"
+                )
+            else:
+                plt.title(
+                    f"{prefix} - median and min/max across parameterizations (log)"
+                )
+            plt.xlabel("Generation")
+            plt.ylabel("Cost (log scale)")
+            plt.yscale("log")
+            plt.grid(True, alpha=0.3, which="both")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(out_combined_log, dpi=200)
+            plt.close()
 
 
 if __name__ == "__main__":
