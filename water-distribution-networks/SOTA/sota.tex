@@ -722,78 +722,7 @@ The most relevant next steps, based on the observed results, are:
 
 This chapter documents the differential-evolution (DE) experiments. The implementation is a straightforward DE style optimizer with practical engineering choices for discrete WDN decision vectors and strict hydraulic evaluation.
 
-\subsection{Implementation Highlights}
-
-Key implementation details:
-
-\begin{itemize}
-	\item The DE core uses the classic mutation scheme $\mathbf{v}=\mathbf{x}_{r1}+F(\mathbf{x}_{r2}-\mathbf{x}_{r3})$ with binomial crossover and a forced index to guarantee at least one mutant gene is used.
-	\item Candidate continuous vectors are snapped to the nearest allowed commercial diameters before cost and hydraulic evaluation. This is performed in the worker objective function and cached to avoid repeat hydraulic simulations for identical snapped designs.
-	\item Hydraulic evaluation uses \textit{wntr/EPANET} simulation; candidates that fail to converge receive a large penalty. Pressure shortfalls are turned into violation penalties so feasible designs (zero shortfall) are preferred.
-\end{itemize}
-
-\subsection{Experimental Setup}
-
-Benchmarks used in the experiments include the Two-Loop (TLN), Hanoi (HAN) and Balerma Irrigation Network (BIN).
-
-\subsection{Representative Results}
-
-The following figures are representative results:
-
-\begin{figure}[H]
-	\centering
-	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/HAN-1000-50-65-85/convergence_over_runs_trim15.png}
-	\caption{DE convergence across independent runs on the Hanoi network (trimmed 15\% of initial iterations). The plot shows best-run traces and run-to-run variability.}
-\end{figure}
-
-\begin{figure}[H]
-	\centering
-	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/TLN-160-40-50-80/convergence_over_runs_trim15.png}
-	\caption{DE convergence across independent runs on the Two-Loop (TLN) benchmark (trimmed 15\%).}
-\end{figure}
-
-\begin{figure}[H]
-	\centering
-	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/BIN-3000-50-50-80/convergence_over_runs_trim15.png}
-	\caption{DE convergence on the large BIN instance (trimmed 15\%). Larger networks show slower refinement and greater variability.}
-\end{figure}
-
-\begin{figure}[H]
-	\centering
-	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_HAN_median_trim15.png}
-	\caption{Median comparison of DE vs other algorithms on Hanoi (trimmed 15\%). This plot summarises robustness across competing methods.}
-\end{figure}
-
-\subsection{Observations}
-
-\begin{itemize}
-	\item DE provides fast early improvement followed by slower asymptotic refinement; this is visible across TLN and HAN traces.
-	\item On medium-sized benchmarks (Hanoi) DE is competitive with GA/Memetic variants in final strict score and shows good robustness across seeds.
-	\item On very large networks (BIN) the evaluation budget and per-generation wall-time limit DE's practical performance; improvements here require either faster hydraulic evaluation or budget-normalised comparisons.
-\end{itemize}
-
-\subsection{Reproducibility and Artifacts}
-
-The DE experiments were executed with scripts that parallelise independent runs and produce a compact set of reproducible artifacts per experiment folder. Each experiment folder (under \texttt{differential-evolution/results/}) contains:
-
-\begin{itemize}
-	\item \texttt{experiment\_config.json}: JSON with instance name, DE hyperparameters (population size, generations, mutation factor $F$, crossover probability $CR$), problem dimension and published reference cost.
-	\item Per-run CSVs: \texttt{run\_NN\_history.csv} (generation, best cost per generation) and \texttt{run\_NN\_best\_vectors.csv} (best vector per generation). These are the raw series used to build the convergence plots.
-	\item \texttt{run\_summaries.csv} and \texttt{aggregate\_summary.json}: numeric summaries across runs (min/median/mean/std of final best costs, run durations, and percent distance from the published best).
-	\item Plots produced by the plotting utility: convergence curves (linear and log scales), trimmed-convergence variants, best-cost distribution boxplots, and a small \texttt{plot\_summary.txt} with compact run statistics.
-\end{itemize}
-
-These artifacts are sufficient to reproduce the figures and tables in this section without re-running experiments. To make the reported numbers concrete, here are selected summaries extracted from the experiment folders included in the repository:
-
-\begin{itemize}
-	\item \textbf{TLN (Two-Loop)} -- folder: \texttt{TLN-160-40-50-80}. Configuration: $\{\mathrm{pop}=40,\;\mathrm{gens}=160,\;F=0.5,\;CR=0.8\}$. Runs: 24. Published best = \$419{,}000. Best-run = \$419{,}000 (0.00\% distance). Median final = \$420{,}000 (0.24\% distance). Median run-time ~ 92 s.
-	\item \textbf{HAN (Hanoi)} -- folder: \texttt{HAN-1000-50-65-85}. Configuration: $\{\mathrm{pop}=50,\;\mathrm{gens}=1000,\;F=0.65,\;CR=0.85\}$. Runs: 16. Published best = \$6{,}081{,}000. Best-run = \$6{,}081{,}068 (0.0011\% distance). Median final = \$6{,}250{,}289 (~2.78\% distance). Median run-time ~ 674 s.
-	\item \textbf{BIN (Balerma)} -- folder: \texttt{BIN-3000-50-50-80}. Configuration: $\{\mathrm{pop}=50,\;\mathrm{gens}=3000,\;F=0.5,\;CR=0.8\}$. Runs: 15. Published best = \$1{,}956{,}000. Best-run = \$2{,}267{,}458 (~15.92\% distance). Median final = \$2{,}424{,}084 (~23.93\% distance). Mean run-time ~ 9.6k seconds (\~2.66 hours).
-\end{itemize}
-
-All numeric values above come from the per-experiment \texttt{aggregate\_summary.json} and \texttt{plot\_summary.txt} files stored with the results. The per-generation CSV histories provide the underlying time series used to create the convergence and comparison figures.
-
-\subsection{How Differential Evolution Works (implemented)}
+\subsection{How Differential Evolution Works}
 
 This implementation follows the classical Differential Evolution (DE) paradigm but applied to the WDN pipe-sizing problem where decision variables are discrete commercial diameters. The core ideas implemented are:
 
@@ -810,52 +739,189 @@ This implementation follows the classical Differential Evolution (DE) paradigm b
 
 Why this implementation choice. Operating DE in continuous surrogate space and snapping at evaluation time combines two strengths: (1) DE's simple differential moves exploit geometric structure in continuous space, and (2) snapping enforces the discrete nature of real-world pipe catalogs. Caching and per-process temporary EPANET prefixes are engineering choices that make the experiment runnable at scale.
 
-\subsection{Network Result Tables}
+\subsection{How wntr Is Used In The DE Experiments}
 
-The tables below present grouped summaries for TLN and HAN showing three DE parameterisations each. Columns are grouped into Cost and Time (seconds); under each group the requested statistics appear as separate columns (min, mean, median, max, std, best). The values are taken directly from the corresponding experiment \texttt{aggregate\_summary.json} files.
+The DE experiments rely on the wntr library as the hydraulic evaluation engine. wntr provides a Python interface to EPANET-style hydraulic simulation that this project uses to compute node pressures and therefore to decide feasibility and quantify violation penalties. Below are the key practical details and engineering choices made in the implementation:
+
+\begin{itemize}
+	\item \textbf{Model loading:} INP files are parsed with a local \texttt{InpFileParser} and loaded into wntr using \texttt{wntr.network.WaterNetworkModel}. A robust loader attempts a direct load and, on Unicode decode errors, falls back to writing a UTF-8 temporary copy (this avoids failures with legacy-encoded INP files).
+	\item \textbf{Applying candidate designs:} Differential-Evolution maintains continuous surrogate vectors which are snapped to the nearest allowed commercial diameters before evaluation. The code assigns diameters directly on the wntr model via \texttt{wn.get\_link(pid).diameter = <value>} for each pipe id.
+	\item \textbf{Simulation and pressure extraction:} evaluations run \\ \texttt{wntr.sim.EpanetSimulator(wn).run\_sim(...)} with a unique file prefix per worker process. The simulation returns time series results; the final timestep node pressures are read from \texttt{results.node["pressure"]} and used to compute junction shortfalls against the benchmark minimum head.
+	\item \textbf{Feasibility and penalty design:} if no junction pressures are available the objective is heavily penalised. Otherwise the code computes per-junction shortfalls = max(0, min\_head - pressure) and aggregates them into a single violation measure. Feasible designs (zero total shortfall) keep the pure construction cost; infeasible designs receive an additive penalty (in the implementation a large constant plus a term proportional to the violation) so infeasible candidates are always dominated by feasible ones.
+	\item \textbf{Cost calculation:} after snapping, each pipe is mapped to a unit cost (from the declared diameter set) and construction cost is evaluated as the dot product of pipe lengths and unit cost per diameter.
+	\item \textbf{Caching:} hydraulic simulation is the dominant cost. The worker objective caches evaluations keyed by the rounded snapped diameter tuple so identical designs avoid repeated expensive simulations.
+	\item \textbf{Concurrency and file safety:} wntr/EPANET writes temporary report/output files during simulation. To avoid inter-process collisions when experiments are parallelised, each worker creates a temporary directory and passes a unique \texttt{file\_prefix} to \texttt{run\_sim}. Temporary files are cleaned up at the end of the worker. This is important: without unique prefixes simultaneous runs can corrupt each other's outputs or cause simulation failures.
+	\item \textbf{Error handling:} simulator convergence errors and other exceptions are trapped: instead of crashing the worker the implementation returns a very large penalised objective so the DE search treats such candidates as undesirable but continues running.
+	\item \textbf{Practical knobs and integration:} the experiment script reconstructs DE bounds from the allowed diameter range (min / max), constructs per-pipe length and id lists, and passes them to the worker processes. A multiprocessing.Manager is used to share lightweight progress state (start time, done generations, best value) between processes for terminal progress rendering.
+\end{itemize}
+
+Why these choices matter: wntr gives a faithful EPANET-style hydraulic evaluation but it is expensive and not thread-safe for simultaneous writes. The combination of (1) snapping to discrete diameters, (2) per-worker file prefixes + temporary directories, and (3) objective caching keeps the experiments reproducible and tractable while avoiding common pitfalls (encoding errors, file collisions, repeated simulations of identical designs).
+
+Recommendations and caveats: when running locally prefer pdflatex to compile the report (several PNGs are used), and ensure enough CPU/memory if you increase the number of parallel workers. For larger networks the runtime per evaluation grows and therefore either the number of generations or the per-run budget must be increased to close the gap to published bests.
+
+
+\subsection{Per-network Performance Overview}
+
+The following section summarises per-network DE performance. For TLN and HAN the three parameterisations are shown side-by-side to conserve vertical space; beneath the plots each network has a compact table with the key numeric summaries and a short commentary highlighting the best configuration and notable differences.
+
+\subsubsection{TLN (Two-Loop) and HAN (Hanoi)}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.70\textwidth]{../differential-evolution/results/TLN-160-40-50-80/convergence_over_runs_trim10.png}
+	\caption{TLN F=0.50 CR=0.80 — convergence traces (trimmed 10\%).}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.70\textwidth]{../differential-evolution/results/TLN-160-40-65-85/convergence_over_runs_trim10.png}
+	\caption{TLN F=0.65 CR=0.85 — convergence traces (trimmed 10\%).}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.70\textwidth]{../differential-evolution/results/TLN-160-40-80-90/convergence_over_runs_trim10.png}
+	\caption{TLN F=0.80 CR=0.90 — convergence traces (trimmed 10\%).}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.70\textwidth]{../differential-evolution/results/HAN-1000-50-50-80/convergence_over_runs_trim10.png}
+	\caption{HAN F=0.50 CR=0.80 — convergence traces (trimmed 10\%).}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.70\textwidth]{../differential-evolution/results/HAN-1000-50-65-85/convergence_over_runs_trim10.png}
+	\caption{HAN F=0.65 CR=0.85 — convergence traces (trimmed 10\%).}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.70\textwidth]{../differential-evolution/results/HAN-1000-50-80-90/convergence_over_runs_trim10.png}
+	\caption{HAN F=0.80 CR=0.90 — convergence traces (trimmed 10\%).}
+\end{figure}
+
+\subsubsection{BIN (Balerma)}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.7\textwidth]{../differential-evolution/results/BIN-3000-50-50-80/convergence_over_runs_trim10.png}
+	\caption{Balerma (BIN) convergence traces (trimmed 10\%) for the reported configuration.}
+\end{figure}
+
+\subsubsection{Per-network summaries}
+
+\paragraph{TLN}
 
 \begin{table}[H]
 	\centering
-	\caption{TLN (Two-Loop) — per-parameterisation summary (cost in \$, time in seconds)}
+	\small
+	\begin{tabular}{l r r r r}
+		\hline
+		Config         & Min (\$) & Median (\$) & Mean time & Best (\$) \\
+		\hline
+		F=0.50 CR=0.80 & 419,000  & 420,000     & 00:01:32  & 419,000   \\
+		F=0.65 CR=0.85 & 419,000  & 420,000     & 00:02:40  & 419,000   \\
+		F=0.80 CR=0.90 & 419,000  & 428,000     & 00:02:59  & 419,000   \\
+		\hline
+	\end{tabular}
+	\caption{TLN: key summaries for each DE parameterisation (time = median run time).}
+\end{table}
+
+All three TLN parameterisations reached the published best (419,000) at least once. The F=0.50,CR=0.80 variant is fastest (median ~92 s) and shows the lowest variability (std smaller), making it the most efficient choice for TLN in this experiment set. The high-F setting (0.80) produces similar best values but with larger cost spread and longer runs, indicating more aggressive steps that slow wall-clock progress.
+
+\paragraph{HAN}
+
+\begin{table}[H]
+	\centering
+	\small
+	\begin{tabular}{l r r r r}
+		\hline
+		Config         & Min (\$)     & Median (\$)  & Mean time & Best (\$)    \\
+		\hline
+		F=0.50 CR=0.80 & 6,081,067.62 & 6,207,292.10 & 00:06:49  & 6,081,067.62 \\
+		F=0.65 CR=0.85 & 6,081,067.62 & 6,250,289.34 & 00:11:14  & 6,081,067.62 \\
+		F=0.80 CR=0.90 & 6,168,832.92 & 6,313,288.36 & 00:10:09  & 6,168,832.92 \\
+		\hline
+	\end{tabular}
+	\caption{Hanoi: key summaries for each DE parameterisation (time = median run time).}
+\end{table}
+
+For HAN the two lower-F variants (0.50 and 0.65) both achieve the published best at least once and show similar median costs; the F=0.65 run is slower on average but has comparable final cost distribution. The F=0.80 setting yields higher costs with increased spread, suggesting that the aggressive mutation factor harms fine-grained local refinement on this medium-sized problem. Overall, F=0.50 or F=0.65 are preferable for HAN when balancing run-time and final quality.
+
+\paragraph{BIN}
+
+\begin{table}[H]
+	\centering
+	\small
+	\begin{tabular}{l r r r}
+		\hline
+		Metric              & Value        &  & \\
+		\hline
+		Runs                & 15           &  & \\
+		Published best (\$) & 1,956,000    &  & \\
+		Best (min) (\$)     & 2,267,457.71 &  & \\
+		Median (\$)         & 2,424,084.09 &  & \\
+		Mean run time       & 02:39:37     &  & \\
+		\hline
+	\end{tabular}
+	\caption{Balerma (BIN)}
+\end{table}
+
+BIN is a much larger instance; DE made steady progress but remains substantially above the published best. The convergence plot shows continuous improvement across generations but the gap indicates either insufficient evaluation budget or that specialized heuristics/local search are required for very large networks. The reported best is ~15.9\% above the published reference; improving BIN will require more generations or hybrid local refinement.
+
+
+\begin{table}[H]
+	\centering
+	\caption{TLN (Two-Loop)}
 	\label{tab:tln-params}
-	\begin{tabular}{l | r r r r r r | r r r r r r}
+	\small
+	\begin{tabular}{l r r r r r}
 		\hline
-		               & \multicolumn{6}{c|}{Cost} & \multicolumn{6}{c}{Time (s)}                                                                                            \\
-		Configuration  & min                       & mean                         & median & max    & std      & best   & min    & mean   & median & max    & std   & best   \\
+		Configuration         & min      & median   & max      & std       & best    \\
 		\hline
-		F=50\% CR=80\% & 419000                    & 421625.00                    & 420000 & 441000 & 4879.53  & 419000 & 66.84  & 93.85  & 91.88  & 142.61 & 19.25 & 66.84  \\
-		F=65\% CR=85\% & 419000                    & 422291.67                    & 420000 & 442000 & 6382.58  & 419000 & 67.97  & 151.05 & 160.31 & 180.89 & 27.20 & 67.97  \\
-		F=80\% CR=90\% & 419000                    & 431000.00                    & 428000 & 454000 & 12057.83 & 419000 & 171.71 & 178.36 & 178.80 & 184.37 & 2.68  & 171.71 \\
+		Cost (F=50\% CR=80\%) & 419,000  & 420,000  & 441,000  & 4,879.53  & 419,000 \\
+		Cost (F=65\% CR=85\%) & 419,000  & 420,000  & 442,000  & 6,382.58  & 419,000 \\
+		Cost (F=80\% CR=90\%) & 419,000  & 428,000  & 454,000  & 12,057.83 & 419,000 \\
+		\hline
+		Time (F=50\% CR=80\%) & 00:01:07 & 00:01:32 & 00:02:23 & 00:00:19  &         \\
+		Time (F=65\% CR=85\%) & 00:01:08 & 00:02:40 & 00:03:01 & 00:00:27  &         \\
+		Time (F=80\% CR=90\%) & 00:02:52 & 00:02:59 & 00:03:04 & 00:00:03  &         \\
 		\hline
 	\end{tabular}
 \end{table}
 
 \begin{figure}[H]
 	\centering
-	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_TLN_best_trim15.png}
-	\caption{TLN — best (min) convergence across DE parameterisations (trimmed 15\%).}
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_TLN_best_trim10.png}
+	\caption{TLN: best (min) convergence across DE parameterisations (trimmed 10\%).}
 \end{figure}
 
 \begin{table}[H]
 	\centering
-	\caption{Hanoi (HAN) — per-parameterisation summary (cost in \$, time in seconds)}
+	\caption{Hanoi (HAN): per-parameterisation summary. Costs in \$; times in hh:mm:ss}
 	\label{tab:han-params}
-	\begin{tabular}{l | r r r r r r | r r r r r r}
+	\small
+	\begin{tabular}{l r r r r r r}
 		\hline
-		               & \multicolumn{6}{c|}{Cost} & \multicolumn{6}{c}{Time (s)}                                                                                                                              \\
-		Configuration  & min                       & mean                         & median           & max              & std          & best             & min    & mean   & median & max    & std   & best   \\
+		Configuration         & min          & median       & max          & std        & best         \\
 		\hline
-		F=50\% CR=80\% & 6{,}081{,}067.62          & 6{,}178{,}184.27             & 6{,}207{,}292.10 & 6{,}300{,}233.50 & 76{,}729.91  & 6{,}081{,}067.62 & 302.05 & 428.01 & 408.79 & 583.55 & 92.44 & 302.05 \\
-		F=65\% CR=85\% & 6{,}081{,}067.62          & 6{,}214{,}854.50             & 6{,}250{,}289.34 & 6{,}335{,}702.12 & 98{,}281.95  & 6{,}081{,}067.62 & 609.94 & 672.60 & 673.51 & 751.43 & 42.54 & 609.94 \\
-		F=80\% CR=90\% & 6{,}168{,}832.92          & 6{,}325{,}858.10             & 6{,}313{,}288.36 & 6{,}517{,}833.08 & 104{,}069.70 & 6{,}168{,}832.92 & 574.74 & 626.48 & 608.99 & 732.06 & 56.38 & 574.74 \\
+		Cost (F=50\% CR=80\%) & 6,081,067.62 & 6,207,292.10 & 6,300,233.50 & 76,729.91  & 6,081,067.62 \\
+		Cost (F=65\% CR=85\%) & 6,081,067.62 & 6,250,289.34 & 6,335,702.12 & 98,281.95  & 6,081,067.62 \\
+		Cost (F=80\% CR=90\%) & 6,168,832.92 & 6,313,288.36 & 6,517,833.08 & 104,069.70 & 6,168,832.92 \\
+		\hline
+		Time (F=50\% CR=80\%) & 00:05:02     & 00:06:49     & 00:09:44     & 00:01:32   &              \\
+		Time (F=65\% CR=85\%) & 00:10:10     & 00:11:14     & 00:12:31     & 00:00:43   &              \\
+		Time (F=80\% CR=90\%) & 00:09:35     & 00:10:09     & 00:12:12     & 00:00:56   &              \\
 		\hline
 	\end{tabular}
 \end{table}
 
 \begin{figure}[H]
 	\centering
-	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_HAN_best_trim15.png}
-	\caption{HAN — best (min) convergence across DE parameterisations (trimmed 15\%).}
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_HAN_best_trim10.png}
+	\caption{HAN: best (min) convergence across DE parameterisations (trimmed 10\%).}
 \end{figure}
 
 \begin{table}[H]
@@ -864,11 +930,11 @@ The tables below present grouped summaries for TLN and HAN showing three DE para
 	\begin{tabular}{l r}
 		\hline
 		Runs                & 15               \\
-		Published best (\$) & 1{,}956{,}000    \\
-		Best (min) (\$)     & 2{,}267{,}457.71 \\
-		Median final (\$)   & 2{,}424{,}084.09 \\
-		Mean final (\$)     & 2{,}414{,}465.21 \\
-		Max final (\$)      & 2{,}577{,}440.24 \\
+		Published best (\$) & 1{,}956{,}000.00 \\
+		Min (\$)            & 2{,}267{,}457.71 \\
+		Median (\$)         & 2{,}424{,}084.09 \\
+		Mean (\$)           & 2{,}414{,}465.21 \\
+		Max (\$)            & 2{,}577{,}440.24 \\
 		Std dev cost (\$)   & 90{,}304.12      \\
 		\hline
 		Run time min (s)    & 9{,}344.29       \\
@@ -880,24 +946,57 @@ The tables below present grouped summaries for TLN and HAN showing three DE para
 	\end{tabular}
 \end{table}
 
-All values are taken directly from each experiment's \texttt{aggregate\_summary.json}. Time statistics are reported in seconds.
+\subsection{Best-Run Network Visualisations}
 
-\subsection{Appendix: Experiment Hyperparameters}
+Figure snapshots of the best run for each benchmark provide an immediate visual understanding of where the optimizer allocated pipe sizes. The images below show the network topologies with pipes coloured by the selected diameter (colourbar in metres): TLN (Two-Loop), HAN (Hanoi) and BIN (Balerma). These visualisations are produced from the best final chromosome of a representative run and plotted using the same coordinate embedding used by the EPANET/INP file.
 
-The project stores DE hyperparameters in each experiment folder under \texttt{differential-evolution/results/\{folder\}/experiment\_config.json}. The most relevant experiment folders included in this report are:
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/TLN-160-40-50-80/best_run_solution.png}
+	\caption{TLN: best-run solution (pipe colours show chosen diameters).}
+\end{figure}
 
-\begin{tabular}{l l l l l}
-	Folder            & pop & gens & $F$  & $CR$ \\
-	\hline
-	TLN-160-40-50-80  & 40  & 160  & 0.50 & 0.80 \\
-	HAN-1000-50-65-85 & 50  & 1000 & 0.65 & 0.85 \\
-	BIN-3000-50-50-80 & 50  & 3000 & 0.50 & 0.80 \\
-	\hline
-\end{tabular}
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/HAN-1000-50-50-80/best_run_solution.png}
+	\caption{HAN: best-run solution (pipe colours show chosen diameters).}
+\end{figure}
 
-Comparison and combined folders under \texttt{results/comparisons/} aggregate multiple experiment folders for cross-parameterisation visualisation only; their plots do not contain new hyperparameters beyond those shown above.
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/BIN-3000-50-50-80/best_run_solution.png}
+	\caption{BIN: best-run solution (pipe colours show chosen diameters).}
+\end{figure}
 
-\subsection{Short Summary}
+The visualisations highlight common design patterns. In TLN (small, highly constrained) the solution uses a small number of discrete diameters and emphasises a few critical links. HAN shows a mix of large trunk mains and smaller lateral branches; the trunk sizing is critical to reach the published benchmark cost while keeping junction pressures acceptable. BIN, the largest instance, shows regionalised reinforcement where a few arterial pipes are significantly larger than many smaller distribution branches — this spatial heterogeneity explains why specialised local refinement or problem decomposition can help close the remaining gap to published bests.
+
+
+\subsection{Limitations of the Current DE Design}
+
+The experiments reported above were constructed to be reproducible and informative, but several design choices limit how the results should be interpreted and constrain the attainable performance. Key limitations include:
+
+\begin{itemize}
+	\item \textbf{High per-evaluation cost:} each objective evaluation requires a wntr/EPANET simulation which dominates runtime. This limits the number of generations and seeds that can be practically explored.
+	\item \textbf{Discrete snapping bias:} the continuous surrogate + snapping approach can bias search trajectories toward the discrete set and may miss constructive discrete moves that a discrete operator would generate explicitly.
+	\item \textbf{Fixed penalty parameters:} infeasibility penalties (constant + scaled violation) are hand-chosen and may affect search behaviour; different penalty schedules can produce different apparent rankings between configurations.
+	\item \textbf{Limited hyperparameter sweep:} only three DE parameterisations were evaluated; a wider grid or automated tuning could find better settings for each network.
+	\item \textbf{Unequal experimental balance:} run counts, budgets, and runtime vary across networks and configurations; without strict budget-normalised comparisons some trade-offs (time vs quality) are hard to quantify.
+	\item \textbf{Caching and file I/O limits:} caching reduces redundant simulations but increases memory/persistence complexity; per-worker temporary files avoid collisions but add I/O overhead that matters on large runs.
+	\item \textbf{Statistical power:} number of independent runs is modest (especially for the largest instance), reducing confidence in small performance differences.
+\end{itemize}
+
+\subsection{Future Improvements}
+
+Below are targeted improvements that would increase the scientific rigour and practical performance of the DE experiments:
+
+\begin{itemize}
+	\item \textbf{Budget-normalised comparisons:} compare algorithms and parameterisations at equal objective-evaluation budgets or wall-clock budgets to make trade-offs explicit.
+	\item \textbf{Adaptive DE variants and hybrids:} add self-adaptive DE, restart policies, and local refinement (memetic steps) to improve large-network performance.
+	\item \textbf{Automated hyperparameter tuning:} use small-scale automated tuning (e.g. CMA-ES, BOHB) to find suitable DE settings per network class.
+	\item \textbf{I/O and concurrency hardening:} reduce file-system overhead (in-memory caching, fewer temporary files) and validate concurrent simulation behaviour under heavier parallelism.
+\end{itemize}
+
+\subsection{Summary}
 
 The DE experiments in this project are implemented with careful engineering for WDN problems: snapping-to-discrete-diameters, caching hydraulic evaluations, and an evaluation penalty structure that prefers feasible designs. Results show DE is a practical and competitive method for medium benchmarks and highlight areas for further work on large-scale instances (evaluation budget, faster hydraulic evaluations and budget-normalised comparisons).
 
