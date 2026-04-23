@@ -38,7 +38,7 @@ Genetic Algorithms (GAs) are among the most widely used metaheuristic approaches
 In GA-based WDN optimization, each candidate design is encoded as a chromosome (solution vector). If the network contains $N$ pipes, the chromosome has $N$ genes:
 
 \[
-\mathbf{X} = [D_1, D_2, D_3, \dots, D_N]
+	\mathbf{X} = [D_1, D_2, D_3, \dots, D_N]
 \]
 
 where $D_i$ represents the selected diameter for pipe $i$ from a discrete set of commercially available diameters. Each gene therefore corresponds directly to a design decision variable in the network.
@@ -56,19 +56,19 @@ Each candidate solution is then evaluated through hydraulic simulation. A solver
 The primary objective of WDN design optimization is to minimize the total construction cost of the pipe network:
 
 \[
-C = \sum_{i=1}^{N} L_i \cdot c(D_i)
+	C = \sum_{i=1}^{N} L_i \cdot c(D_i)
 \]
 
 where:
 \begin{itemize}
-\item $L_i$ is the length of pipe $i$
-\item $c(D_i)$ is the cost per unit length for diameter $D_i$
+	\item $L_i$ is the length of pipe $i$
+	\item $c(D_i)$ is the cost per unit length for diameter $D_i$
 \end{itemize}
 
 Hydraulic constraints must also be satisfied, particularly minimum pressure requirements at demand nodes. These constraints are commonly handled using a penalty function approach. If the pressure at node $j$ falls below the required minimum pressure $P_{min}$, a penalty is added to the objective function:
 
 \[
-F = C + \alpha \sum_{j=1}^{M} \max(0, P_{min} - P_j)
+	F = C + \alpha \sum_{j=1}^{M} \max(0, P_{min} - P_j)
 \]
 
 where $P_j$ is the pressure at node $j$, $M$ is the number of nodes, and $\alpha$ is a penalty coefficient. The resulting fitness value $F$ is minimized by the algorithm.
@@ -78,9 +78,9 @@ where $P_j$ is the pressure at node $j$, $M$ is the number of nodes, and $\alpha
 Once all individuals are evaluated, the algorithm selects parent solutions to produce the next generation. Selection favors individuals with lower fitness values (lower cost). Common selection mechanisms include:
 
 \begin{itemize}
-\item roulette wheel selection
-\item tournament selection
-\item rank-based selection
+	\item roulette wheel selection
+	\item tournament selection
+	\item rank-based selection
 \end{itemize}
 
 Tournament selection is particularly common in WDN optimization because it maintains diversity while promoting better-performing designs.
@@ -92,11 +92,11 @@ Crossover combines two parent solutions to produce offspring that inherit charac
 A common method is single-point crossover. Given two parent chromosomes:
 
 \[
-Parent_1 = [D_1, D_2, D_3, D_4, D_5]
+	Parent_1 = [D_1, D_2, D_3, D_4, D_5]
 \]
 
 \[
-Parent_2 = [D'_1, D'_2, D'_3, D'_4, D'_5]
+	Parent_2 = [D'_1, D'_2, D'_3, D'_4, D'_5]
 \]
 
 a crossover point is randomly selected and the genes beyond that point are exchanged, producing two new offspring solutions. This operator allows beneficial design patterns to propagate through the population.
@@ -116,9 +116,9 @@ After crossover and mutation, the new offspring form the next generation of the 
 The GA process repeats over many generations until a stopping condition is reached. Typical termination criteria include:
 
 \begin{itemize}
-\item reaching a maximum number of generations,
-\item convergence of the population fitness,
-\item or exceeding a computational time limit.
+	\item reaching a maximum number of generations,
+	\item convergence of the population fitness,
+	\item or exceeding a computational time limit.
 \end{itemize}
 
 \subsection*{Hybrid and Advanced GA Variants}
@@ -159,59 +159,59 @@ These hybrid approaches benefit from the complementary strengths of the two meth
 SA is a stochastic local-search inspired by thermodynamics. Starting from an initial design, SA perturbs one pipe at a time (e.g. changing its diameter) and accepts changes that lower cost; worse solutions may be accepted with a probability that decreases over time (``cooling''), allowing escape from local optima. The first WDN design application was by Cunha \& Sousa (1999)\cite{ref4}. In WDNs, SA iteratively adjusts diameters and uses a cooling schedule to gradually focus the search. Although older, SA is still used (often hybridized with VNS or local search) in recent studies for robustness.
 
 \begin{itemize}
-    \item At each step, randomly select a pipe and change its diameter to a neighboring size. Compute the new cost; accept it if lower, or with probability $e^{-\Delta C/T}$ if higher (where $T$ is a ``temperature'' gradually reduced).
-    \item SA does not require gradient information and can escape local minima via occasional uphill moves. Cunha \& Sousa (1999) showed SA could find good designs under pressure constraints\cite{ref4}.
-    \item Modern variants integrate SA with other heuristics (e.g. SA+VNS, multi-objective SA) for improved search, though detailed SA literature in WDNs is scarcer than for GA/PSO.
+	\item At each step, randomly select a pipe and change its diameter to a neighboring size. Compute the new cost; accept it if lower, or with probability $e^{-\Delta C/T}$ if higher (where $T$ is a ``temperature'' gradually reduced).
+	\item SA does not require gradient information and can escape local minima via occasional uphill moves. Cunha \& Sousa (1999) showed SA could find good designs under pressure constraints\cite{ref4}.
+	\item Modern variants integrate SA with other heuristics (e.g. SA+VNS, multi-objective SA) for improved search, though detailed SA literature in WDNs is scarcer than for GA/PSO.
 \end{itemize}
 
 \section*{Particle Swarm Optimization (PSO)}
 PSO simulates a ``swarm'' of particles (each a candidate design) moving in the search space. Each particle has a velocity and position (diameter vector). Particles are influenced by their own best-known solution ($p_{best}$) and the best-known solution of the swarm ($g_{best}$). At each iteration, velocity and position update formulas (inertia plus cognitive/social components) guide particles toward promising regions. Suribabu \& Neelakantan (2007) applied PSO to WDN design\cite{ref5} and found it required fewer function evaluations than GA on benchmark problems.
 
 \begin{itemize}
-    \item Each particle's position encodes a full network design (a set of pipe sizes). Velocity update: 
-    $$v_{i}(t+1) = w v_i(t) + c_1 r_1 (p_{best,i} - x_i) + c_2 r_2 (g_{best} - x_i)\,.$$
-    \item Position update: $x_i(t+1)=x_i(t)+v_i(t+1)$. (Here $w,c_1,c_2$ are tunable parameters and $r_1,r_2$ random).
-    \item PSO was shown to converge quickly: Suribabu \& Neelakantan reported PSO ``is more efficient than other methods, requiring fewer objective evaluations'' on two WDN benchmarks\cite{ref5}.
-    \item PSO variants for WDNs include discrete/swarm hybrids, fully informed PSO, and hybrids with local search. Recent work has also combined PSO with Tabu search or Nelder--Mead to refine solutions.
+	\item Each particle's position encodes a full network design (a set of pipe sizes). Velocity update:
+	      $$v_{i}(t+1) = w v_i(t) + c_1 r_1 (p_{best,i} - x_i) + c_2 r_2 (g_{best} - x_i)\,.$$
+	\item Position update: $x_i(t+1)=x_i(t)+v_i(t+1)$. (Here $w,c_1,c_2$ are tunable parameters and $r_1,r_2$ random).
+	\item PSO was shown to converge quickly: Suribabu \& Neelakantan reported PSO ``is more efficient than other methods, requiring fewer objective evaluations'' on two WDN benchmarks\cite{ref5}.
+	\item PSO variants for WDNs include discrete/swarm hybrids, fully informed PSO, and hybrids with local search. Recent work has also combined PSO with Tabu search or Nelder--Mead to refine solutions.
 \end{itemize}
 
 \section*{Ant Colony Optimization (ACO)}
 ACO is inspired by ants depositing pheromones along paths. In WDN design, an ant builds a solution by choosing pipe sizes sequentially (e.g. for each pipe) based on pheromone strengths and heuristic desirability. After all ants build solutions, the pheromones on chosen pipe-diameter combinations are reinforced (especially for low-cost designs), guiding future ants toward promising choices. Maier et al. (2003) were first to formulate ACO for WDNs\cite{ref6}.
 
 \begin{itemize}
-    \item Each ant constructs a complete pipe-sizing solution by probabilistically selecting diameters; probability increases with pheromone level (which encodes learned quality) and local fitness.
-    \item Maier et al. showed ACO ``outperformed GAs \dots in terms of computational efficiency and ability to find near-global optimal solutions'' on two benchmark networks\cite{ref6}. In practice, ACO rapidly finds good solutions with fewer simulations.
-    \item Significant ACO studies include parametric analyses (Zecchin et al., 2005) and hybrid ACO-GA approaches. Like other swarms, ACO variants (elitist pheromone updates, max-min ACO) have been applied to enhance exploration.
+	\item Each ant constructs a complete pipe-sizing solution by probabilistically selecting diameters; probability increases with pheromone level (which encodes learned quality) and local fitness.
+	\item Maier et al. showed ACO ``outperformed GAs \dots in terms of computational efficiency and ability to find near-global optimal solutions'' on two benchmark networks\cite{ref6}. In practice, ACO rapidly finds good solutions with fewer simulations.
+	\item Significant ACO studies include parametric analyses (Zecchin et al., 2005) and hybrid ACO-GA approaches. Like other swarms, ACO variants (elitist pheromone updates, max-min ACO) have been applied to enhance exploration.
 \end{itemize}
 
 \section*{Differential Evolution (DE)}
-DE is a population-based algorithm where new candidate solutions are generated by combining differences between random solution vectors. For each ``parent'' vector $\mathbf{x}_i$, DE creates a trial vector by adding a weighted difference of two other randomly chosen vectors: 
-$$\mathbf{v}_i = \mathbf{x}_{r1} + F(\mathbf{x}_{r2}-\mathbf{x}_{r3}),$$ 
+DE is a population-based algorithm where new candidate solutions are generated by combining differences between random solution vectors. For each ``parent'' vector $\mathbf{x}_i$, DE creates a trial vector by adding a weighted difference of two other randomly chosen vectors:
+$$\mathbf{v}_i = \mathbf{x}_{r1} + F(\mathbf{x}_{r2}-\mathbf{x}_{r3}),$$
 then mixing $\mathbf{v}_i$ with $\mathbf{x}_i$ (crossover) to form $\mathbf{u}_i$, which replaces $\mathbf{x}_i$ if it yields lower cost. DE excels in continuous/discrete selection problems. Mansouri et al. (2015) applied DE to a 19-pipe network and achieved $\sim$10\% cost saving over classical methods\cite{ref7}.
 
 \begin{itemize}
-    \item DE uses difference vectors for mutation (rather than GA-like mutation). The scale factor $F$ controls step size. A crossover probability mixes mutant and parent to increase diversity.
-    \item Recent DE work in WDNs includes chaos-enhanced DE: Poojitha \& Jothiprakash (2022) replaced random number generation with chaotic sequences to improve convergence. Their Chaotic-DE and Chaotic-F$_\mu$-DE achieved higher precision and drastically reduced computation on five benchmarks\cite{ref8}.
-    \item DE hybrids (e.g. DE+particle swarm, self-adaptive DE) have also been tested. DE is particularly useful for large real-world networks due to its simple implementation and good balance of exploration/exploitation.
+	\item DE uses difference vectors for mutation (rather than GA-like mutation). The scale factor $F$ controls step size. A crossover probability mixes mutant and parent to increase diversity.
+	\item Recent DE work in WDNs includes chaos-enhanced DE: Poojitha \& Jothiprakash (2022) replaced random number generation with chaotic sequences to improve convergence. Their Chaotic-DE and Chaotic-F$_\mu$-DE achieved higher precision and drastically reduced computation on five benchmarks\cite{ref8}.
+	\item DE hybrids (e.g. DE+particle swarm, self-adaptive DE) have also been tested. DE is particularly useful for large real-world networks due to its simple implementation and good balance of exploration/exploitation.
 \end{itemize}
 
 \section*{Other Metaheuristics and Hybrids}
 A wide variety of other nature-inspired methods have been applied to WDN design. For example, Harmony Search (HS) (mimicking musical improvisation) was introduced by Geem (2006) and quickly applied to pipe networks\cite{ref4}. Artificial Bee Colony (ABC) algorithms have been used: Najarzadegan \& Moeini (2022) solved the Two-Loop, New York and GoYang networks with an improved ABC variant\cite{ref9}. Firefly Algorithm, Bacterial Foraging, Cuckoo Search, and Whale Optimization are other examples; often these are hybridized (e.g. firefly+GA, PSO+cuckoo) to exploit multiple mechanisms\cite{ref10}. Many of these approaches offer comparable performance on small benchmarks, and choice often depends on user familiarity.
 
 \begin{itemize}
-    \item \textbf{Harmony Search (HS):} each solution is a ``harmony''; new harmonies are generated by memory consideration and pitch adjustment. HS was reported to solve the Hanoi and other networks effectively.
-    \item \textbf{Artificial Bee Colony (ABC):} solutions are ``food sources''; bees explore neighborhoods of the best sources or scout randomly. In Najarzadegan's study, an improved ABC reached the known optimal costs on two-loop, New York and GoYang\cite{ref9}.
-    \item \textbf{Firefly Algorithm:} Fireflies are attracted to brighter (better) solutions. Hybrid firefly+GA/PSO (FAGA, FAPSO) models have been developed, though the pure firefly is less common in WDN design.
-    \item \textbf{Other hybrids:} Many works combine global search with local search. Examples include GA with local improvement (memetic), PSO+Tabu, Simulated Annealing+VNS, or even differential slack penalty and integer programming for refinement.
-    \item \textbf{Recent novel methods:} Some 2022--2024 studies propose new hybrids or swarm variants (e.g. Rao algorithms, Coyote Optimization, MOEA/D, etc.) but these generally still rely on the same basic principles of exploration/exploitation.
+	\item \textbf{Harmony Search (HS):} each solution is a ``harmony''; new harmonies are generated by memory consideration and pitch adjustment. HS was reported to solve the Hanoi and other networks effectively.
+	\item \textbf{Artificial Bee Colony (ABC):} solutions are ``food sources''; bees explore neighborhoods of the best sources or scout randomly. In Najarzadegan's study, an improved ABC reached the known optimal costs on two-loop, New York and GoYang\cite{ref9}.
+	\item \textbf{Firefly Algorithm:} Fireflies are attracted to brighter (better) solutions. Hybrid firefly+GA/PSO (FAGA, FAPSO) models have been developed, though the pure firefly is less common in WDN design.
+	\item \textbf{Other hybrids:} Many works combine global search with local search. Examples include GA with local improvement (memetic), PSO+Tabu, Simulated Annealing+VNS, or even differential slack penalty and integer programming for refinement.
+	\item \textbf{Recent novel methods:} Some 2022--2024 studies propose new hybrids or swarm variants (e.g. Rao algorithms, Coyote Optimization, MOEA/D, etc.) but these generally still rely on the same basic principles of exploration/exploitation.
 \end{itemize}
 
 
 
 \section{Multi-Benchmark Algorithm Comparison}
 
-This section compares representative best-cost results reported in the 
-literature for multiple benchmark networks. Values correspond to 
+This section compares representative best-cost results reported in the
+literature for multiple benchmark networks. Values correspond to
 best-known or near-best solutions commonly reported across studies.
 
 % Required in preamble:
@@ -223,150 +223,150 @@ best-known or near-best solutions commonly reported across studies.
 \subsection{Two-Loop Network}
 
 \begin{figure}[H]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-    ybar,
-    width=12cm,
-    height=8cm,
-    ymin=418000,
-    ymax=421000,
-    ylabel={Best Cost (\$)},
-    symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
-    xtick=data,
-    xticklabel style={rotate=45, anchor=east},
-    nodes near coords
-]
-\addplot coordinates {
-(GA,419000)
-(PSO,419000)
-(ACO,419500)
-(DE,419000)
-(Memetic GA,419000)
-};
-\end{axis}
-\end{tikzpicture}
-\caption{Two-Loop Network Cost Comparison}
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[
+				ybar,
+				width=12cm,
+				height=8cm,
+				ymin=418000,
+				ymax=421000,
+				ylabel={Best Cost (\$)},
+				symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
+				xtick=data,
+				xticklabel style={rotate=45, anchor=east},
+				nodes near coords
+			]
+			\addplot coordinates {
+					(GA,419000)
+					(PSO,419000)
+					(ACO,419500)
+					(DE,419000)
+					(Memetic GA,419000)
+				};
+		\end{axis}
+	\end{tikzpicture}
+	\caption{Two-Loop Network Cost Comparison}
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Hanoi Network}
 
 \begin{figure}[H]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-    ybar,
-    width=12cm,
-    height=8cm,
-    ymin=6.075,
-    ymax=6.105,
-    ylabel={Best Cost (\$ million)},
-    symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
-    xtick=data,
-    xticklabel style={rotate=45, anchor=east},
-    nodes near coords
-]
-\addplot coordinates {
-(GA,6.081)
-(PSO,6.082)
-(ACO,6.090)
-(DE,6.081)
-(Memetic GA,6.081)
-};
-\end{axis}
-\end{tikzpicture}
-\caption{Hanoi Network Cost Comparison}
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[
+				ybar,
+				width=12cm,
+				height=8cm,
+				ymin=6.075,
+				ymax=6.105,
+				ylabel={Best Cost (\$ million)},
+				symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
+				xtick=data,
+				xticklabel style={rotate=45, anchor=east},
+				nodes near coords
+			]
+			\addplot coordinates {
+					(GA,6.081)
+					(PSO,6.082)
+					(ACO,6.090)
+					(DE,6.081)
+					(Memetic GA,6.081)
+				};
+		\end{axis}
+	\end{tikzpicture}
+	\caption{Hanoi Network Cost Comparison}
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{New York Tunnel Network}
 
 \begin{figure}[H]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-    ybar,
-    width=12cm,
-    height=8cm,
-    ymin=38.60,
-    ymax=38.75,
-    ylabel={Best Cost (\$ million)},
-    symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
-    xtick=data,
-    xticklabel style={rotate=45, anchor=east},
-    nodes near coords
-]
-\addplot coordinates {
-(GA,38.64)
-(PSO,38.65)
-(ACO,38.70)
-(DE,38.64)
-(Memetic GA,38.64)
-};
-\end{axis}
-\end{tikzpicture}
-\caption{New York Tunnel Network Cost Comparison}
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[
+				ybar,
+				width=12cm,
+				height=8cm,
+				ymin=38.60,
+				ymax=38.75,
+				ylabel={Best Cost (\$ million)},
+				symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
+				xtick=data,
+				xticklabel style={rotate=45, anchor=east},
+				nodes near coords
+			]
+			\addplot coordinates {
+					(GA,38.64)
+					(PSO,38.65)
+					(ACO,38.70)
+					(DE,38.64)
+					(Memetic GA,38.64)
+				};
+		\end{axis}
+	\end{tikzpicture}
+	\caption{New York Tunnel Network Cost Comparison}
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{GoYang Network}
 
 \begin{figure}[H]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-    ybar,
-    width=12cm,
-    height=8cm,
-    ymin=17500000,
-    ymax=17750000,
-    ylabel={Best Cost (\$)},
-    symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
-    xtick=data,
-    xticklabel style={rotate=45, anchor=east},
-    nodes near coords
-]
-\addplot coordinates {
-(GA,17550000)
-(PSO,17540000)
-(ACO,17680000)
-(DE,17535000)
-(Memetic GA,17530000)
-};
-\end{axis}
-\end{tikzpicture}
-\caption{GoYang Network Cost Comparison}
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[
+				ybar,
+				width=12cm,
+				height=8cm,
+				ymin=17500000,
+				ymax=17750000,
+				ylabel={Best Cost (\$)},
+				symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
+				xtick=data,
+				xticklabel style={rotate=45, anchor=east},
+				nodes near coords
+			]
+			\addplot coordinates {
+					(GA,17550000)
+					(PSO,17540000)
+					(ACO,17680000)
+					(DE,17535000)
+					(Memetic GA,17530000)
+				};
+		\end{axis}
+	\end{tikzpicture}
+	\caption{GoYang Network Cost Comparison}
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Balerma Network}
 
 \begin{figure}[H]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-    ybar,
-    width=12cm,
-    height=8cm,
-    ymin=2100000,
-    ymax=2200000,
-    ylabel={Best Cost (\$)},
-    symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
-    xtick=data,
-    xticklabel style={rotate=45, anchor=east},
-    nodes near coords
-]
-\addplot coordinates {
-(GA,2145000)
-(PSO,2138000)
-(ACO,2180000)
-(DE,2135000)
-(Memetic GA,2132000)
-};
-\end{axis}
-\end{tikzpicture}
-\caption{Balerma Network Cost Comparison}
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[
+				ybar,
+				width=12cm,
+				height=8cm,
+				ymin=2100000,
+				ymax=2200000,
+				ylabel={Best Cost (\$)},
+				symbolic x coords={GA, PSO, ACO, DE, Memetic GA},
+				xtick=data,
+				xticklabel style={rotate=45, anchor=east},
+				nodes near coords
+			]
+			\addplot coordinates {
+					(GA,2145000)
+					(PSO,2138000)
+					(ACO,2180000)
+					(DE,2135000)
+					(Memetic GA,2132000)
+				};
+		\end{axis}
+	\end{tikzpicture}
+	\caption{Balerma Network Cost Comparison}
 \end{figure}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -374,11 +374,11 @@ best-known or near-best solutions commonly reported across studies.
 \section{Observations Across Benchmarks}
 
 \begin{itemize}
-    \item For small networks (Two-Loop), nearly all algorithms reach the global optimum.
-    \item For medium networks (Hanoi, NYT), convergence reliability differs.
-    \item For larger networks (GoYang, Balerma), hybrid and DE-based approaches
-          typically achieve lower cost and better robustness.
-    \item ACO tends to require more evaluations and shows slightly higher cost variance.
+	\item For small networks (Two-Loop), nearly all algorithms reach the global optimum.
+	\item For medium networks (Hanoi, NYT), convergence reliability differs.
+	\item For larger networks (GoYang, Balerma), hybrid and DE-based approaches
+	      typically achieve lower cost and better robustness.
+	\item ACO tends to require more evaluations and shows slightly higher cost variance.
 \end{itemize}
 
 
@@ -386,13 +386,13 @@ best-known or near-best solutions commonly reported across studies.
 Research on WDN optimization commonly uses a suite of benchmark networks to test GA performance. These include both small illustrative systems and larger real-world networks:
 
 \begin{itemize}
-    \item \textbf{Two-Loop Network (TLN):} A simple gravity-fed example with one reservoir, 6 demand nodes, and 8 pipes arranged in two loops\cite{ref18}. This hypothetical network (all pipe lengths equal, fixed head reservoir) is a classic test case. Its EPANET input is widely available (e.g. in Simpson et al. 1994 and various teaching materials).
-    \item \textbf{Hanoi Network:} A looped network based on the trunk system of Hanoi, Vietnam. It has 1 reservoir, 31 junction nodes, and 34 pipes (3 loops)\cite{ref19}. The Hanoi network is included in the EPANET example library and has been used extensively in optimization studies\cite{ref19}. An EPANET .inp file (sometimes called Hanoi.inp) is publicly available (e.g. via the EPA/EPANET distribution or research repositories).
-    \item \textbf{New York Tunnels Network (NYT/NYN):} A gravity water-supply system representing the NYC tunnel network. It consists of 1 reservoir, 20 junctions, and 21 pipes (two main loops)\cite{ref19}. This single-source looped network has appeared in many GA studies. The EPANET input is often cited; for example, Exeter Univ. provides a benchmark download for the NYT network\cite{ref19}.
-    \item \textbf{Anytown Network:} A classic Battle-of-the-Networks benchmark (Walski et al. 1987). The hypothetical Anytown system has 3 source reservoirs, 1 pump station, and serves roughly 20 demand junctions over $\sim$22 miles of pipe\cite{ref20}. It is a dense, looped distribution grid used to test GA methods on expansion and reinforcement problems. The official EPANET file ($\sim$10 KB) is available from the Univ. of Kentucky (Kentucky Water Research Institute) repository\cite{ref20}. (In literature, Anytown is often described as 20 junctions and 39 pipes, derived from these sources.)
-    \item \textbf{Balerma Irrigation Network:} A large real network from Almería, Spain. It has 4 reservoirs and about 443 junctions with 454 pipes\cite{ref21}. This irrigation WDN (Sol-Poniente district) is used for large-scale optimization studies. The Balerma topology and data were published in Simpson (1994) and later works. Public EPANET models (e.g. Balerma.inp) can be found via research databases or by contacting the original authors (see Tzatchkov et al. 2017).
-    \item \textbf{GoYang Network:} A Korean water network used in GA literature. It includes 1 reservoir, 22 demand nodes, and 30 pipes\cite{ref18}. GoYang's characteristics are detailed in a multi-objective optimization study (e.g. Jeong et al. 2007). The EPANET model (often called goyang.inp) is available from the authors' supplement or research archives.
-    \item \textbf{FOWM (Federally Owned Water Main) Network:} The Washington, D.C. FOWM system (skeletonized) with 1 reservoir, $\sim$44 junctions, and 49 pipes\cite{ref21}. Originally a real system in Arlington County/DC (late-1980s study), it has been used in reliability analyses. An EPANET model (FOWM.inp) is sometimes cited (e.g. Goff 1991); parts of the data (64 pipes, 55 nodes, linked to adjacent system) appear in Ormsbee et al. 1990. We found references noting a 44-node/49-pipe simplified version\cite{ref21}.
+	\item \textbf{Two-Loop Network (TLN):} A simple gravity-fed example with one reservoir, 6 demand nodes, and 8 pipes arranged in two loops\cite{ref18}. This hypothetical network (all pipe lengths equal, fixed head reservoir) is a classic test case. Its EPANET input is widely available (e.g. in Simpson et al. 1994 and various teaching materials).
+	\item \textbf{Hanoi Network:} A looped network based on the trunk system of Hanoi, Vietnam. It has 1 reservoir, 31 junction nodes, and 34 pipes (3 loops)\cite{ref19}. The Hanoi network is included in the EPANET example library and has been used extensively in optimization studies\cite{ref19}. An EPANET .inp file (sometimes called Hanoi.inp) is publicly available (e.g. via the EPA/EPANET distribution or research repositories).
+	\item \textbf{New York Tunnels Network (NYT/NYN):} A gravity water-supply system representing the NYC tunnel network. It consists of 1 reservoir, 20 junctions, and 21 pipes (two main loops)\cite{ref19}. This single-source looped network has appeared in many GA studies. The EPANET input is often cited; for example, Exeter Univ. provides a benchmark download for the NYT network\cite{ref19}.
+	\item \textbf{Anytown Network:} A classic Battle-of-the-Networks benchmark (Walski et al. 1987). The hypothetical Anytown system has 3 source reservoirs, 1 pump station, and serves roughly 20 demand junctions over $\sim$22 miles of pipe\cite{ref20}. It is a dense, looped distribution grid used to test GA methods on expansion and reinforcement problems. The official EPANET file ($\sim$10 KB) is available from the Univ. of Kentucky (Kentucky Water Research Institute) repository\cite{ref20}. (In literature, Anytown is often described as 20 junctions and 39 pipes, derived from these sources.)
+	\item \textbf{Balerma Irrigation Network:} A large real network from Almería, Spain. It has 4 reservoirs and about 443 junctions with 454 pipes\cite{ref21}. This irrigation WDN (Sol-Poniente district) is used for large-scale optimization studies. The Balerma topology and data were published in Simpson (1994) and later works. Public EPANET models (e.g. Balerma.inp) can be found via research databases or by contacting the original authors (see Tzatchkov et al. 2017).
+	\item \textbf{GoYang Network:} A Korean water network used in GA literature. It includes 1 reservoir, 22 demand nodes, and 30 pipes\cite{ref18}. GoYang's characteristics are detailed in a multi-objective optimization study (e.g. Jeong et al. 2007). The EPANET model (often called goyang.inp) is available from the authors' supplement or research archives.
+	\item \textbf{FOWM (Federally Owned Water Main) Network:} The Washington, D.C. FOWM system (skeletonized) with 1 reservoir, $\sim$44 junctions, and 49 pipes\cite{ref21}. Originally a real system in Arlington County/DC (late-1980s study), it has been used in reliability analyses. An EPANET model (FOWM.inp) is sometimes cited (e.g. Goff 1991); parts of the data (64 pipes, 55 nodes, linked to adjacent system) appear in Ormsbee et al. 1990. We found references noting a 44-node/49-pipe simplified version\cite{ref21}.
 \end{itemize}
 
 The sources and data for these benchmarks include academic publications and online repositories. For example, the Centre for Water Systems at Univ. of Exeter maintains a Benchmarks page, providing EPANET input files for NYT, Hanoi, and Anytown networks\cite{ref19}. Similarly, the Kentucky Water Research Institute's digital commons offers the Anytown model\cite{ref20}. Where available, EPANET ``.inp'' files have been cited in the literature or made public (e.g. via ResearchGate or project websites). Researchers can obtain these models from the cited references or the indicated repositories to replicate GA optimization experiments.
@@ -402,9 +402,9 @@ The sources and data for these benchmarks include academic publications and onli
 The following online repositories provide access to the EPANET (\texttt{.inp}) input files and cost data for the standard benchmarks discussed in this review:
 
 \begin{itemize}
-    \item \textbf{Centre for Water Systems, University of Exeter:} The primary repository for classic benchmarks (Hanoi, New York Tunnels, Balerma). \\ \url{https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/}
-    \item \textbf{Water Distribution System Research Database, University of Kentucky:} Comprehensive collection of models including Anytown, GoYang, and other large-scale systems. \\ \url{https://uknowledge.uky.edu/wdst_models/}
-    \item \textbf{Open Water Analytics (GitHub):} Community-maintained benchmarks tailored for modern research tools like Python's WNTR library. \\ \url{https://github.com/OpenWaterAnalytics}
+	\item \textbf{Centre for Water Systems, University of Exeter:} The primary repository for classic benchmarks (Hanoi, New York Tunnels, Balerma). \\ \url{https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/}
+	\item \textbf{Water Distribution System Research Database, University of Kentucky:} Comprehensive collection of models including Anytown, GoYang, and other large-scale systems. \\ \url{https://uknowledge.uky.edu/wdst_models/}
+	\item \textbf{Open Water Analytics (GitHub):} Community-maintained benchmarks tailored for modern research tools like Python's WNTR library. \\ \url{https://github.com/OpenWaterAnalytics}
 \end{itemize}
 
 \section{Memetic GA Approach}
@@ -416,10 +416,10 @@ This section documents the practical system developed in \texttt{Memetic\_GA/Att
 The implemented pipeline has four layers:
 
 \begin{enumerate}
-    \item \textbf{Search layer:} GA and Memetic GA produce candidate pipe diameter vectors.
-    \item \textbf{Hydraulic evaluation layer:} strict benchmark feasibility and score are computed through WNTR/EPANET-style simulation.
-    \item \textbf{Persistence/analysis layer:} run history, generation metrics, and logs are stored in SQLite and exported for plotting.
-    \item \textbf{Experiment operations layer:} lightweight controls are used only to launch/stop/resume experiments and export analysis artifacts.
+	\item \textbf{Search layer:} GA and Memetic GA produce candidate pipe diameter vectors.
+	\item \textbf{Hydraulic evaluation layer:} strict benchmark feasibility and score are computed through WNTR/EPANET-style simulation.
+	\item \textbf{Persistence/analysis layer:} run history, generation metrics, and logs are stored in SQLite and exported for plotting.
+	\item \textbf{Experiment operations layer:} lightweight controls are used only to launch/stop/resume experiments and export analysis artifacts.
 \end{enumerate}
 
 \subsection{Solution Encoding and Core Data Structures}
@@ -427,44 +427,44 @@ The implemented pipeline has four layers:
 Each candidate solution is a chromosome of integer indices:
 
 \[
-\mathbf{x} = [g_1, g_2, \dots, g_N], \quad g_i \in \{0,1,\dots,K-1\}
+	\mathbf{x} = [g_1, g_2, \dots, g_N], \quad g_i \in \{0,1,\dots,K-1\}
 \]
 
 where:
 \begin{itemize}
-    \item $N$ is the number of pipes in the network,
-    \item $K$ is the number of allowed commercial diameters for that benchmark.
+	\item $N$ is the number of pipes in the network,
+	\item $K$ is the number of allowed commercial diameters for that benchmark.
 \end{itemize}
 
 Why integer indices are used instead of direct diameter values:
 \begin{itemize}
-    \item mutation/crossover are simpler and faster on integers,
-    \item all offspring remain in the discrete benchmark catalog,
-    \item conversion to physical diameters is deterministic during fitness evaluation.
+	\item mutation/crossover are simpler and faster on integers,
+	\item all offspring remain in the discrete benchmark catalog,
+	\item conversion to physical diameters is deterministic during fitness evaluation.
 \end{itemize}
 
 Main structures used in the implementation:
 \begin{itemize}
-    \item \textbf{Individual:} chromosome, lazy cached fitness value (``lazy'' means fitness is computed only when first needed, then reused until the chromosome changes; this avoids repeating expensive evaluations many times inside selection/sorting),
-    \item \textbf{MemeticGA:} population, operators, history arrays,
-    \item \textbf{RunPersistence (SQLite):} runs table, generations table, logs table,
-    \item \textbf{RunConfig:} network/algorithm/hyperparameter settings.
+	\item \textbf{Individual:} chromosome, lazy cached fitness value (``lazy'' means fitness is computed only when first needed, then reused until the chromosome changes; this avoids repeating expensive evaluations many times inside selection/sorting),
+	\item \textbf{MemeticGA:} population, operators, history arrays,
+	\item \textbf{RunPersistence (SQLite):} runs table, generations table, logs table,
+	\item \textbf{RunConfig:} network/algorithm/hyperparameter settings.
 \end{itemize}
 
 \subsection{Standard GA vs Memetic GA in This Implementation}
 
 Both variants share the same GA backbone:
 \begin{enumerate}
-    \item \textbf{Tournament selection:} randomly sample a small group of individuals, and keep the best from that group as parent. Example: if 3 individuals are sampled with fitness values $(5.2\times10^6, 4.9\times10^6, 5.4\times10^6)$, the parent is the one with $4.9\times10^6$.
-    \item \textbf{Uniform crossover:} for each gene position, choose gene from parent A or B with probability 0.5. Example with 6 genes: A = [2,4,3,1,5,0], B = [1,4,2,2,3,0], child may become [2,4,2,1,3,0].
-    \item \textbf{Gaussian-like integer mutation:} for each gene (with small probability), add integer noise sampled from a normal distribution around 0, then clip to valid bounds. Example: gene index $g_i=4$, sampled noise $-2$ gives $g_i'=2$; if noise $+10$ and max index is 9, value is clipped to 9. This creates mostly small local edits, with occasional larger jumps.
-    \item \textbf{Elitism:} copy the best current solution directly into next generation so quality never degrades because of random operators.
+	\item \textbf{Tournament selection:} randomly sample a small group of individuals, and keep the best from that group as parent. Example: if 3 individuals are sampled with fitness values $(5.2\times10^6, 4.9\times10^6, 5.4\times10^6)$, the parent is the one with $4.9\times10^6$.
+	\item \textbf{Uniform crossover:} for each gene position, choose gene from parent A or B with probability 0.5. Example with 6 genes: A = [2,4,3,1,5,0], B = [1,4,2,2,3,0], child may become [2,4,2,1,3,0].
+	\item \textbf{Gaussian-like integer mutation:} for each gene (with small probability), add integer noise sampled from a normal distribution around 0, then clip to valid bounds. Example: gene index $g_i=4$, sampled noise $-2$ gives $g_i'=2$; if noise $+10$ and max index is 9, value is clipped to 9. This creates mostly small local edits, with occasional larger jumps.
+	\item \textbf{Elitism:} copy the best current solution directly into next generation so quality never degrades because of random operators.
 \end{enumerate}
 
 The \textbf{difference} is local search:
 \begin{itemize}
-    \item \textbf{Standard GA:} local search intensity is set to zero.
-    \item \textbf{Memetic GA:} offspring may be refined by hill climbing after crossover/mutation.
+	\item \textbf{Standard GA:} local search intensity is set to zero.
+	\item \textbf{Memetic GA:} offspring may be refined by hill climbing after crossover/mutation.
 \end{itemize}
 
 Hence memetic adds stronger exploitation, while standard GA preserves broader exploration.
@@ -475,8 +475,8 @@ For selected offspring, the local search samples a subset of pipe positions and 
 
 Conceptually:
 \[
-g_i' = g_i + \Delta,\quad \Delta \in \{-1,+1\},\quad
-\text{accept if } f(\mathbf{x}') < f(\mathbf{x})
+	g_i' = g_i + \Delta,\quad \Delta \in \{-1,+1\},\quad
+	\text{accept if } f(\mathbf{x}') < f(\mathbf{x})
 \]
 
 This produces a Lamarckian effect: improved genes are written back to the offspring chromosome before entering the next population.
@@ -485,62 +485,62 @@ This produces a Lamarckian effect: improved genes are written back to the offspr
 
 Two evaluation notions are used:
 \begin{itemize}
-    \item \textbf{training fitness:} the number used by GA operators (selection, elitism, ranking) to decide which individuals survive and reproduce.
-    \item \textbf{strict paper score:} the benchmark-comparison value reported to compare with published best results.
+	\item \textbf{training fitness:} the number used by GA operators (selection, elitism, ranking) to decide which individuals survive and reproduce.
+	\item \textbf{strict paper score:} the benchmark-comparison value reported to compare with published best results.
 \end{itemize}
 
 In this implementation, when strict mode is enabled, training fitness is aligned to strict benchmark evaluation (feasibility-first). Intuitively:
 \begin{itemize}
-    \item feasible candidates are ranked by actual benchmark cost,
-    \item infeasible candidates receive a very large penalty so they are dominated by feasible ones.
+	\item feasible candidates are ranked by actual benchmark cost,
+	\item infeasible candidates receive a very large penalty so they are dominated by feasible ones.
 \end{itemize}
 
 In strict mode, the objective is feasibility-first:
 \[
-f(\mathbf{x})=
-\begin{cases}
-\text{paper\_cost}(\mathbf{x}) & \text{if feasible} \\
-10^{12}+\text{cost}(\mathbf{x})+10^9\cdot\text{violation}(\mathbf{x}) & \text{if infeasible}
-\end{cases}
+	f(\mathbf{x})=
+	\begin{cases}
+		\text{paper\_cost}(\mathbf{x})                                        & \text{if feasible}   \\
+		10^{12}+\text{cost}(\mathbf{x})+10^9\cdot\text{violation}(\mathbf{x}) & \text{if infeasible}
+	\end{cases}
 \]
 
 Detailed interpretation of this function:
 \begin{itemize}
-    \item The constant $10^{12}$ is a dominance barrier. It makes any infeasible solution numerically much worse than normal feasible costs.
-    \item $\text{cost}(\mathbf{x})$ keeps relative ordering among infeasible solutions (cheaper infeasible may be preferred over expensive infeasible when no feasible exists yet).
-    \item $10^9\cdot\text{violation}(\mathbf{x})$ increases penalty as hydraulic violation grows.
+	\item The constant $10^{12}$ is a dominance barrier. It makes any infeasible solution numerically much worse than normal feasible costs.
+	\item $\text{cost}(\mathbf{x})$ keeps relative ordering among infeasible solutions (cheaper infeasible may be preferred over expensive infeasible when no feasible exists yet).
+	\item $10^9\cdot\text{violation}(\mathbf{x})$ increases penalty as hydraulic violation grows.
 \end{itemize}
 
 Why both $\text{cost}(\mathbf{x})$ and $\text{violation}(\mathbf{x})$ are needed in the infeasible branch:
 \begin{itemize}
-    \item If we used only violation, the search might move toward hydraulically-better designs that are unnecessarily expensive.
-    \item If we used only cost, the search might prefer cheap but severely infeasible designs and fail to approach feasibility.
-    \item Using both gives a useful compromise: reduce violation first, but among similarly infeasible candidates still prefer lower-cost structures.
+	\item If we used only violation, the search might move toward hydraulically-better designs that are unnecessarily expensive.
+	\item If we used only cost, the search might prefer cheap but severely infeasible designs and fail to approach feasibility.
+	\item Using both gives a useful compromise: reduce violation first, but among similarly infeasible candidates still prefer lower-cost structures.
 \end{itemize}
 
 Small numeric example:
 \begin{itemize}
-    \item Candidate A: feasible with paper cost $4.30\times10^6 \Rightarrow f(A)=4.30\times10^6$.
-    \item Candidate B: infeasible with cost $3.90\times10^6$ and violation $0.7$:
-    \[
-    f(B)=10^{12}+3.90\times10^6+10^9\cdot0.7 \approx 1.0007039\times10^{12}
-    \]
+	\item Candidate A: feasible with paper cost $4.30\times10^6 \Rightarrow f(A)=4.30\times10^6$.
+	\item Candidate B: infeasible with cost $3.90\times10^6$ and violation $0.7$:
+	      \[
+		      f(B)=10^{12}+3.90\times10^6+10^9\cdot0.7 \approx 1.0007039\times10^{12}
+	      \]
 \end{itemize}
 Thus A is always preferred over B, even if B has lower raw cost, because B violates feasibility.
 
 How strict feasibility is determined in practice:
 \begin{itemize}
-    \item apply candidate diameters to the EPANET/ WNTR model,
-    \item simulate hydraulics,
-    \item compute pressure shortfall versus required minimum head (i.e., shortfall = $\max(0,\;H_{\min}-H_{\text{actual}})$, so 0 means the constraint is satisfied),
-    \item mark candidate feasible only when shortfall is effectively zero.
+	\item apply candidate diameters to the EPANET/ WNTR model,
+	\item simulate hydraulics,
+	\item compute pressure shortfall versus required minimum head (i.e., shortfall = $\max(0,\;H_{\min}-H_{\text{actual}})$, so 0 means the constraint is satisfied),
+	\item mark candidate feasible only when shortfall is effectively zero.
 \end{itemize}
 
 Caching is critical because hydraulic simulation is expensive. The implementation caches strict evaluations by rounded diameter-tuple key, so repeated candidates do not re-run full simulation unnecessarily.
 
 Example cache key idea:
 \[
-(0.3048, 0.2032, 0.2540, \dots)
+	(0.3048, 0.2032, 0.2540, \dots)
 \]
 
 If the same tuple appears again in another generation (common in elitism and convergence), the stored score is reused instantly. This improves speed and also stabilizes consistency between training and logging (the same candidate receives the same recorded value, instead of being affected by repeated simulation noise).
@@ -549,41 +549,41 @@ If the same tuple appears again in another generation (common in elitism and con
 
 Three operational modes are exposed:
 \begin{itemize}
-    \item \textbf{full:} evaluate strict feasibility for all individuals every generation.
-    \item \textbf{best-first:} evaluate candidates in fitness order until first feasible is found.
-    \item \textbf{hybrid:} evaluate top-$K$ each generation and force a full scan every $N$ generations.
+	\item \textbf{full:} evaluate strict feasibility for all individuals every generation.
+	\item \textbf{best-first:} evaluate candidates in fitness order until first feasible is found.
+	\item \textbf{hybrid:} evaluate top-$K$ each generation and force a full scan every $N$ generations.
 \end{itemize}
 
 Interpretation:
 \begin{itemize}
-    \item full gives exact \texttt{feasible\_in\_pop} each generation,
-    \item best-first is fastest but gives less population-level visibility,
-    \item hybrid balances speed and observability.
+	\item full gives exact \texttt{feasible\_in\_pop} each generation,
+	\item best-first is fastest but gives less population-level visibility,
+	\item hybrid balances speed and observability.
 \end{itemize}
 
 \subsection{What Top-K and Full-Every-N Mean}
 
 In hybrid mode:
 \begin{itemize}
-    \item \textbf{Top-K} = number of highest-ranked individuals strictly checked every generation,
-    \item \textbf{Full every N gen} = interval for exact full-population strict scan.
+	\item \textbf{Top-K} = number of highest-ranked individuals strictly checked every generation,
+	\item \textbf{Full every N gen} = interval for exact full-population strict scan.
 \end{itemize}
 
 Practical effect:
 \begin{itemize}
-    \item smaller $K$ gives faster runs,
-    \item larger $K$ tracks full-mode behavior more closely,
-    \item smaller $N$ gives more frequent exact \texttt{feasible\_in\_pop} counts.
+	\item smaller $K$ gives faster runs,
+	\item larger $K$ tracks full-mode behavior more closely,
+	\item smaller $N$ gives more frequent exact \texttt{feasible\_in\_pop} counts.
 \end{itemize}
 
 \subsection{Experiment Orchestration}
 
 Operational tooling is intentionally secondary in this work. It is used for reproducible experimentation only:
 \begin{itemize}
-    \item run multiple seeds and both algorithms,
-    \item resume interrupted experiments from checkpoints,
-    \item export per-generation history and summary plots,
-    \item inspect the best chromosome trajectory when needed.
+	\item run multiple seeds and both algorithms,
+	\item resume interrupted experiments from checkpoints,
+	\item export per-generation history and summary plots,
+	\item inspect the best chromosome trajectory when needed.
 \end{itemize}
 
 The technical contribution remains the optimization/evaluation pipeline and the resulting benchmark numbers.
@@ -592,31 +592,31 @@ The technical contribution remains the optimization/evaluation pipeline and the 
 
 Typical produced graphs include:
 \begin{itemize}
-    \item convergence curves (training and strict score trends),
-    \item algorithm comparison bars,
-    \item gap-to-published-reference bars,
-    \item feasible fraction curves,
-    \item best-of-best all-runs summary (gap \% and final strict score).
+	\item convergence curves (training and strict score trends),
+	\item algorithm comparison bars,
+	\item gap-to-published-reference bars,
+	\item feasible fraction curves,
+	\item best-of-best all-runs summary (gap \% and final strict score).
 \end{itemize}
 
 How to explain in presentation:
 \begin{itemize}
-    \item \textbf{strict score down} means better benchmark design,
-    \item \textbf{gap \% near 0} means near published reference,
-    \item \textbf{negative gap \%} means below published comparator under current evaluator,
-    \item \textbf{feasible fraction rising} means the population is learning feasibility, not only one lucky elite.
+	\item \textbf{strict score down} means better benchmark design,
+	\item \textbf{gap \% near 0} means near published reference,
+	\item \textbf{negative gap \%} means below published comparator under current evaluator,
+	\item \textbf{feasible fraction rising} means the population is learning feasibility, not only one lucky elite.
 \end{itemize}
 
 \begin{figure}[H]
-\centering
-\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Convergence_Curves.png}
-\caption{Run statistics across selected networks (convergence and spread).}
+	\centering
+	\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Convergence_Curves.png}
+	\caption{Run statistics across selected networks (convergence and spread).}
 \end{figure}
 
 \begin{figure}[H]
-\centering
-\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png}
-\caption{Best-of-best summary across all runs (gap to published best and final strict score).}
+	\centering
+	\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Best-of-Best_Across_All_Runs.png}
+	\caption{Best-of-best summary across all runs (gap to published best and final strict score).}
 \end{figure}
 
 \subsection{Observed Results (Concrete Numbers)}
@@ -624,48 +624,48 @@ How to explain in presentation:
 To complement the convergence plots, Table~\ref{tab:attempt005-best-vs-sota} reports concrete best values obtained from the live run history.
 
 \begin{table}[H]
-\centering
-\caption{Best strict paper score vs published reference (from live run history).}
-\label{tab:attempt005-best-vs-sota}
-\begin{tabular}{l l r r r}
-\hline
-Network & Algorithm & Best score & Published best & Gap (\%) \\
-\hline
-TLN.inp & Memetic GA  & 419000.0   & 419000.0   & 0.00 \\
-TLN.inp & Standard GA & 420000.0   & 419000.0   & 0.24 \\
-hanoi.inp & Memetic GA  & 6281488.3 & 6081000.0 & 3.30 \\
-hanoi.inp & Standard GA & 6430614.6 & 6081000.0 & 5.75 \\
-BIN.inp & Memetic GA  & 3933733.4 & 1956000.0 & 97.04 \\
-BIN.inp & Standard GA & 4427058.7 & 1956000.0 & 122.41 \\
-\hline
-\end{tabular}
+	\centering
+	\caption{Best strict paper score vs published reference (from live run history).}
+	\label{tab:attempt005-best-vs-sota}
+	\begin{tabular}{l l r r r}
+		\hline
+		Network   & Algorithm   & Best score & Published best & Gap (\%) \\
+		\hline
+		TLN.inp   & Memetic GA  & 419000.0   & 419000.0       & 0.00     \\
+		TLN.inp   & Standard GA & 420000.0   & 419000.0       & 0.24     \\
+		hanoi.inp & Memetic GA  & 6281488.3  & 6081000.0      & 3.30     \\
+		hanoi.inp & Standard GA & 6430614.6  & 6081000.0      & 5.75     \\
+		BIN.inp   & Memetic GA  & 3933733.4  & 1956000.0      & 97.04    \\
+		BIN.inp   & Standard GA & 4427058.7  & 1956000.0      & 122.41   \\
+		\hline
+	\end{tabular}
 \end{table}
 
 Observations from Table~\ref{tab:attempt005-best-vs-sota}:
 \begin{itemize}
-    \item On TLN, Memetic GA reaches the published best value exactly (0.00\% gap).
-    \item On Hanoi, Memetic GA improves noticeably over Standard GA (3.30\% vs 5.75\% gap) and is nearly competitive with the literature reference.
-    \item On BIN (Balerma), both variants remain significantly above the published reference, but Memetic GA outperforms Standard GA (97.04\% vs 122.41\% gap), suggesting the need for alternative strategies on very large networks.
+	\item On TLN, Memetic GA reaches the published best value exactly (0.00\% gap).
+	\item On Hanoi, Memetic GA improves noticeably over Standard GA (3.30\% vs 5.75\% gap) and is nearly competitive with the literature reference.
+	\item On BIN (Balerma), both variants remain significantly above the published reference, but Memetic GA outperforms Standard GA (97.04\% vs 122.41\% gap), suggesting the need for alternative strategies on very large networks.
 \end{itemize}
 
 To show stability (not only single best runs), Table~\ref{tab:attempt005-run-distribution} summarizes the distribution of strict scores over all finite recorded runs per network/algorithm pair.
 
 \begin{table}[H]
-\centering
-\caption{Run distribution summary from live history (finite strict scores only).}
-\label{tab:attempt005-run-distribution}
-\begin{tabular}{l l r r r r}
-\hline
-Network & Algorithm & Runs & Mean score & Min score & Max score \\
-\hline
-TLN.inp & Memetic GA  & 20 & 424150.0   & 419000.0   & 448000.0 \\
-TLN.inp & Standard GA & 1  & 420000.0   & 420000.0   & 420000.0 \\
-hanoi.inp & Memetic GA  & 17 & 6778049.4 & 6281488.3 & 7581995.4 \\
-hanoi.inp & Standard GA & 1  & 6430614.6 & 6430614.6 & 6430614.6 \\
-BIN.inp & Memetic GA  & 14 & 4234735.2 & 3933733.4 & 4717918.7 \\
-BIN.inp & Standard GA & 1  & 4427058.7 & 4427058.7 & 4427058.7 \\
-\hline
-\end{tabular}
+	\centering
+	\caption{Run distribution summary from live history (finite strict scores only).}
+	\label{tab:attempt005-run-distribution}
+	\begin{tabular}{l l r r r r}
+		\hline
+		Network   & Algorithm   & Runs & Mean score & Min score & Max score \\
+		\hline
+		TLN.inp   & Memetic GA  & 20   & 424150.0   & 419000.0  & 448000.0  \\
+		TLN.inp   & Standard GA & 1    & 420000.0   & 420000.0  & 420000.0  \\
+		hanoi.inp & Memetic GA  & 17   & 6778049.4  & 6281488.3 & 7581995.4 \\
+		hanoi.inp & Standard GA & 1    & 6430614.6  & 6430614.6 & 6430614.6 \\
+		BIN.inp   & Memetic GA  & 14   & 4234735.2  & 3933733.4 & 4717918.7 \\
+		BIN.inp   & Standard GA & 1    & 4427058.7  & 4427058.7 & 4427058.7 \\
+		\hline
+	\end{tabular}
 \end{table}
 
 These numbers indicate that the current implementation is already competitive on smaller benchmarks, while large-network performance (BIN) is still the main gap to state-of-the-art.
@@ -674,19 +674,19 @@ These numbers indicate that the current implementation is already competitive on
 
 Browser replay exports an HTML visualization for generation-by-generation inspection:
 \begin{itemize}
-    \item pipe colors represent diameter,
-    \item node colors represent elevation,
-    \item slider controls generation playback,
-    \item side panel shows key metrics and run metadata,
-    \item legend bars explain color scales explicitly.
+	\item pipe colors represent diameter,
+	\item node colors represent elevation,
+	\item slider controls generation playback,
+	\item side panel shows key metrics and run metadata,
+	\item legend bars explain color scales explicitly.
 \end{itemize}
 
 This helps explain results to non-specialists because optimization history becomes visually inspectable instead of only numerical.
 
 \begin{figure}[H]
-\centering
-\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Browser_Replay.png}
-\caption{Browser replay visualization with generation slider and legend bars.}
+	\centering
+	\includegraphics[width=0.98\linewidth]{../Memetic_GA/Attempt_005/images/Browser_Replay.png}
+	\caption{Browser replay visualization with generation slider and legend bars.}
 \end{figure}
 
 \subsection{Limitations and Responsible Interpretation}
@@ -699,68 +699,252 @@ A current practical limitation is per-generation runtime: a single generation ca
 
 The implemented system provides a practical, reproducible, and transparent framework for GA-based WDN optimization research:
 \begin{enumerate}
-    \item practical memetic and standard GA implementation over benchmark networks,
-    \item strict EPANET/WNTR-style feasibility-first scoring with caching,
-    \item configurable feasibility scan modes (full, best-first, hybrid),
-    \item reproducible run persistence and resume workflows,
-    \item concrete benchmark reporting with explicit best-vs-SOTA tables.
+	\item practical memetic and standard GA implementation over benchmark networks,
+	\item strict EPANET/WNTR-style feasibility-first scoring with caching,
+	\item configurable feasibility scan modes (full, best-first, hybrid),
+	\item reproducible run persistence and resume workflows,
+	\item concrete benchmark reporting with explicit best-vs-SOTA tables.
 \end{enumerate}
 
 \subsection{Future Improvements}
 
 The most relevant next steps, based on the observed results, are:
 \begin{itemize}
-    \item \textbf{Faster generation cycle:} reduce per-generation runtime so we can run more generations within the same compute budget.
-    \item \textbf{Strengthen large-network search (BIN):} adaptive diversification and restart policies tuned for very large design spaces.
-    \item \textbf{Increase statistical robustness:} balanced run counts for both algorithms on each benchmark (not only one Standard GA run).
-    \item \textbf{Budget-normalized benchmarking:} compare algorithms at equal evaluation budgets (objective calls/time), not only equal generation counts.
-    \item \textbf{Hydraulic evaluation acceleration:} stronger caching and parallel strict checks to allow deeper runs without prohibitive time.
-    \item \textbf{Ablation studies:} isolate impact of local search intensity, scan mode, and repair strategy on feasibility and final cost.
+	\item \textbf{Faster generation cycle:} reduce per-generation runtime so we can run more generations within the same compute budget.
+	\item \textbf{Strengthen large-network search (BIN):} adaptive diversification and restart policies tuned for very large design spaces.
+	\item \textbf{Increase statistical robustness:} balanced run counts for both algorithms on each benchmark (not only one Standard GA run).
+	\item \textbf{Budget-normalized benchmarking:} compare algorithms at equal evaluation budgets (objective calls/time), not only equal generation counts.
+	\item \textbf{Hydraulic evaluation acceleration:} stronger caching and parallel strict checks to allow deeper runs without prohibitive time.
+	\item \textbf{Ablation studies:} isolate impact of local search intensity, scan mode, and repair strategy on feasibility and final cost.
 \end{itemize}
+
+\section{Differential Evolution Experiments}
+
+This chapter documents the differential-evolution (DE) experiments. The implementation is a straightforward DE style optimizer with practical engineering choices for discrete WDN decision vectors and strict hydraulic evaluation.
+
+\subsection{Implementation Highlights}
+
+Key implementation details:
+
+\begin{itemize}
+	\item The DE core uses the classic mutation scheme $\mathbf{v}=\mathbf{x}_{r1}+F(\mathbf{x}_{r2}-\mathbf{x}_{r3})$ with binomial crossover and a forced index to guarantee at least one mutant gene is used.
+	\item Candidate continuous vectors are snapped to the nearest allowed commercial diameters before cost and hydraulic evaluation. This is performed in the worker objective function and cached to avoid repeat hydraulic simulations for identical snapped designs.
+	\item Hydraulic evaluation uses \textit{wntr/EPANET} simulation; candidates that fail to converge receive a large penalty. Pressure shortfalls are turned into violation penalties so feasible designs (zero shortfall) are preferred.
+\end{itemize}
+
+\subsection{Experimental Setup}
+
+Benchmarks used in the experiments include the Two-Loop (TLN), Hanoi (HAN) and Balerma Irrigation Network (BIN).
+
+\subsection{Representative Results}
+
+The following figures are representative results:
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/HAN-1000-50-65-85/convergence_over_runs_trim15.png}
+	\caption{DE convergence across independent runs on the Hanoi network (trimmed 15\% of initial iterations). The plot shows best-run traces and run-to-run variability.}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/TLN-160-40-50-80/convergence_over_runs_trim15.png}
+	\caption{DE convergence across independent runs on the Two-Loop (TLN) benchmark (trimmed 15\%).}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/BIN-3000-50-50-80/convergence_over_runs_trim15.png}
+	\caption{DE convergence on the large BIN instance (trimmed 15\%). Larger networks show slower refinement and greater variability.}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_HAN_median_trim15.png}
+	\caption{Median comparison of DE vs other algorithms on Hanoi (trimmed 15\%). This plot summarises robustness across competing methods.}
+\end{figure}
+
+\subsection{Observations}
+
+\begin{itemize}
+	\item DE provides fast early improvement followed by slower asymptotic refinement; this is visible across TLN and HAN traces.
+	\item On medium-sized benchmarks (Hanoi) DE is competitive with GA/Memetic variants in final strict score and shows good robustness across seeds.
+	\item On very large networks (BIN) the evaluation budget and per-generation wall-time limit DE's practical performance; improvements here require either faster hydraulic evaluation or budget-normalised comparisons.
+\end{itemize}
+
+\subsection{Reproducibility and Artifacts}
+
+The DE experiments were executed with scripts that parallelise independent runs and produce a compact set of reproducible artifacts per experiment folder. Each experiment folder (under \texttt{differential-evolution/results/}) contains:
+
+\begin{itemize}
+	\item \texttt{experiment\_config.json}: JSON with instance name, DE hyperparameters (population size, generations, mutation factor $F$, crossover probability $CR$), problem dimension and published reference cost.
+	\item Per-run CSVs: \texttt{run\_NN\_history.csv} (generation, best cost per generation) and \texttt{run\_NN\_best\_vectors.csv} (best vector per generation). These are the raw series used to build the convergence plots.
+	\item \texttt{run\_summaries.csv} and \texttt{aggregate\_summary.json}: numeric summaries across runs (min/median/mean/std of final best costs, run durations, and percent distance from the published best).
+	\item Plots produced by the plotting utility: convergence curves (linear and log scales), trimmed-convergence variants, best-cost distribution boxplots, and a small \texttt{plot\_summary.txt} with compact run statistics.
+\end{itemize}
+
+These artifacts are sufficient to reproduce the figures and tables in this section without re-running experiments. To make the reported numbers concrete, here are selected summaries extracted from the experiment folders included in the repository:
+
+\begin{itemize}
+	\item \textbf{TLN (Two-Loop)} -- folder: \texttt{TLN-160-40-50-80}. Configuration: $\{\mathrm{pop}=40,\;\mathrm{gens}=160,\;F=0.5,\;CR=0.8\}$. Runs: 24. Published best = \$419{,}000. Best-run = \$419{,}000 (0.00\% distance). Median final = \$420{,}000 (0.24\% distance). Median run-time ~ 92 s.
+	\item \textbf{HAN (Hanoi)} -- folder: \texttt{HAN-1000-50-65-85}. Configuration: $\{\mathrm{pop}=50,\;\mathrm{gens}=1000,\;F=0.65,\;CR=0.85\}$. Runs: 16. Published best = \$6{,}081{,}000. Best-run = \$6{,}081{,}068 (0.0011\% distance). Median final = \$6{,}250{,}289 (~2.78\% distance). Median run-time ~ 674 s.
+	\item \textbf{BIN (Balerma)} -- folder: \texttt{BIN-3000-50-50-80}. Configuration: $\{\mathrm{pop}=50,\;\mathrm{gens}=3000,\;F=0.5,\;CR=0.8\}$. Runs: 15. Published best = \$1{,}956{,}000. Best-run = \$2{,}267{,}458 (~15.92\% distance). Median final = \$2{,}424{,}084 (~23.93\% distance). Mean run-time ~ 9.6k seconds (\~2.66 hours).
+\end{itemize}
+
+All numeric values above come from the per-experiment \texttt{aggregate\_summary.json} and \texttt{plot\_summary.txt} files stored with the results. The per-generation CSV histories provide the underlying time series used to create the convergence and comparison figures.
+
+\subsection{How Differential Evolution Works (implemented)}
+
+This implementation follows the classical Differential Evolution (DE) paradigm but applied to the WDN pipe-sizing problem where decision variables are discrete commercial diameters. The core ideas implemented are:
+
+\begin{itemize}
+	\item \textbf{Population-based search:} maintain a population of candidate vectors (one real-valued element per pipe). The population is initialised uniformly across the allowed continuous range (min diameter to max diameter) and evolves over generations.
+	\item \textbf{Mutation by vector differences:} for each target vector $\mathbf{x}_i$ three distinct population members $\mathbf{x}_{r1},\mathbf{x}_{r2},\mathbf{x}_{r3}$ are chosen at random and a mutant vector is created as
+	      \[\mathbf{v}=\mathbf{x}_{r1} + F\,(\mathbf{x}_{r2}-\mathbf{x}_{r3}),\]
+	      where $F$ (mutation factor) controls the step size. This leverages differences between solutions to propose directed moves in parameter space.
+	\item \textbf{Binomial crossover:} each component of the trial vector is taken from the mutant with probability $CR$ (crossover rate) or from the original target otherwise. A single forced index guarantees at least one mutant component is used, preventing the trial from being identical to the parent.
+	\item \textbf{Greedy selection:} the trial vector replaces the parent if it has equal or lower objective value (cost plus penalty). This elitist, per-individual replacement promotes steady improvement while retaining population diversity.
+	\item \textbf{Discrete decision handling (snapping):} trial and population vectors are continuous during search but before hydraulic evaluation each continuous vector is snapped to the nearest allowed commercial diameter per pipe. Snapping keeps the search in a continuous surrogate space while ensuring evaluated designs are feasible choices from the benchmark diameter set.
+	\item \textbf{Penalty-based feasibility handling and caching:} hydraulic simulation is used to test feasibility and compute pressure shortfalls. Feasible designs use pure construction cost; infeasible designs receive large additive penalties proportional to violation magnitude. All snapped designs are cached (keyed by rounded diameter tuples) so repeat evaluations are very cheap.
+\end{itemize}
+
+Why this implementation choice. Operating DE in continuous surrogate space and snapping at evaluation time combines two strengths: (1) DE's simple differential moves exploit geometric structure in continuous space, and (2) snapping enforces the discrete nature of real-world pipe catalogs. Caching and per-process temporary EPANET prefixes are engineering choices that make the experiment runnable at scale.
+
+\subsection{Network Result Tables}
+
+The tables below present grouped summaries for TLN and HAN showing three DE parameterisations each. Columns are grouped into Cost and Time (seconds); under each group the requested statistics appear as separate columns (min, mean, median, max, std, best). The values are taken directly from the corresponding experiment \texttt{aggregate\_summary.json} files.
+
+\begin{table}[H]
+	\centering
+	\caption{TLN (Two-Loop) — per-parameterisation summary (cost in \$, time in seconds)}
+	\label{tab:tln-params}
+	\begin{tabular}{l | r r r r r r | r r r r r r}
+		\hline
+		               & \multicolumn{6}{c|}{Cost} & \multicolumn{6}{c}{Time (s)}                                                                                            \\
+		Configuration  & min                       & mean                         & median & max    & std      & best   & min    & mean   & median & max    & std   & best   \\
+		\hline
+		F=50\% CR=80\% & 419000                    & 421625.00                    & 420000 & 441000 & 4879.53  & 419000 & 66.84  & 93.85  & 91.88  & 142.61 & 19.25 & 66.84  \\
+		F=65\% CR=85\% & 419000                    & 422291.67                    & 420000 & 442000 & 6382.58  & 419000 & 67.97  & 151.05 & 160.31 & 180.89 & 27.20 & 67.97  \\
+		F=80\% CR=90\% & 419000                    & 431000.00                    & 428000 & 454000 & 12057.83 & 419000 & 171.71 & 178.36 & 178.80 & 184.37 & 2.68  & 171.71 \\
+		\hline
+	\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_TLN_best_trim15.png}
+	\caption{TLN — best (min) convergence across DE parameterisations (trimmed 15\%).}
+\end{figure}
+
+\begin{table}[H]
+	\centering
+	\caption{Hanoi (HAN) — per-parameterisation summary (cost in \$, time in seconds)}
+	\label{tab:han-params}
+	\begin{tabular}{l | r r r r r r | r r r r r r}
+		\hline
+		               & \multicolumn{6}{c|}{Cost} & \multicolumn{6}{c}{Time (s)}                                                                                                                              \\
+		Configuration  & min                       & mean                         & median           & max              & std          & best             & min    & mean   & median & max    & std   & best   \\
+		\hline
+		F=50\% CR=80\% & 6{,}081{,}067.62          & 6{,}178{,}184.27             & 6{,}207{,}292.10 & 6{,}300{,}233.50 & 76{,}729.91  & 6{,}081{,}067.62 & 302.05 & 428.01 & 408.79 & 583.55 & 92.44 & 302.05 \\
+		F=65\% CR=85\% & 6{,}081{,}067.62          & 6{,}214{,}854.50             & 6{,}250{,}289.34 & 6{,}335{,}702.12 & 98{,}281.95  & 6{,}081{,}067.62 & 609.94 & 672.60 & 673.51 & 751.43 & 42.54 & 609.94 \\
+		F=80\% CR=90\% & 6{,}168{,}832.92          & 6{,}325{,}858.10             & 6{,}313{,}288.36 & 6{,}517{,}833.08 & 104{,}069.70 & 6{,}168{,}832.92 & 574.74 & 626.48 & 608.99 & 732.06 & 56.38 & 574.74 \\
+		\hline
+	\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.95\textwidth]{../differential-evolution/results/comparisons/comparison_HAN_best_trim15.png}
+	\caption{HAN — best (min) convergence across DE parameterisations (trimmed 15\%).}
+\end{figure}
+
+\begin{table}[H]
+	\centering
+	\caption{Balerma (BIN) DE run summary (single configuration reported)}
+	\begin{tabular}{l r}
+		\hline
+		Runs                & 15               \\
+		Published best (\$) & 1{,}956{,}000    \\
+		Best (min) (\$)     & 2{,}267{,}457.71 \\
+		Median final (\$)   & 2{,}424{,}084.09 \\
+		Mean final (\$)     & 2{,}414{,}465.21 \\
+		Max final (\$)      & 2{,}577{,}440.24 \\
+		Std dev cost (\$)   & 90{,}304.12      \\
+		\hline
+		Run time min (s)    & 9{,}344.29       \\
+		Run time median (s) & 9{,}577.92       \\
+		Run time mean (s)   & 9{,}577.13       \\
+		Run time max (s)    & 9{,}744.03       \\
+		Run time std (s)    & 103.63           \\
+		\hline
+	\end{tabular}
+\end{table}
+
+All values are taken directly from each experiment's \texttt{aggregate\_summary.json}. Time statistics are reported in seconds.
+
+\subsection{Appendix: Experiment Hyperparameters}
+
+The project stores DE hyperparameters in each experiment folder under \texttt{differential-evolution/results/\{folder\}/experiment\_config.json}. The most relevant experiment folders included in this report are:
+
+\begin{tabular}{l l l l l}
+	Folder            & pop & gens & $F$  & $CR$ \\
+	\hline
+	TLN-160-40-50-80  & 40  & 160  & 0.50 & 0.80 \\
+	HAN-1000-50-65-85 & 50  & 1000 & 0.65 & 0.85 \\
+	BIN-3000-50-50-80 & 50  & 3000 & 0.50 & 0.80 \\
+	\hline
+\end{tabular}
+
+Comparison and combined folders under \texttt{results/comparisons/} aggregate multiple experiment folders for cross-parameterisation visualisation only; their plots do not contain new hyperparameters beyond those shown above.
+
+\subsection{Short Summary}
+
+The DE experiments in this project are implemented with careful engineering for WDN problems: snapping-to-discrete-diameters, caching hydraulic evaluations, and an evaluation penalty structure that prefers feasible designs. Results show DE is a practical and competitive method for medium benchmarks and highlight areas for further work on large-scale instances (evaluation budget, faster hydraulic evaluations and budget-normalised comparisons).
+
 
 \begin{thebibliography}{99}
 
-\bibitem{ref1} \href{https://www.researchgate.net/publication/235694770_Genetic_Algorithms_for_Least-Cost_Design_of_Water_Distribution_Networks}{(PDF) Genetic Algorithms for Least-Cost Design of Water Distribution Networks}
+	\bibitem{ref1} \href{https://www.researchgate.net/publication/235694770_Genetic_Algorithms_for_Least-Cost_Design_of_Water_Distribution_Networks}{(PDF) Genetic Algorithms for Least-Cost Design of Water Distribution Networks}
 
-\bibitem{ref2} \href{https://www.mdpi.com/2073-4441/14/6/851}{Optimization of Water Distribution Networks Using Genetic Algorithm Based SOP--WDN Program}
+	\bibitem{ref2} \href{https://www.mdpi.com/2073-4441/14/6/851}{Optimization of Water Distribution Networks Using Genetic Algorithm Based SOP--WDN Program}
 
-\bibitem{ref3} \href{https://chijournal.org/H527}{Analysis of Optimal Solutions of a Benchmark Water Distribution Network for Exploring the Global Optimality of the Current-best Solution}
+	\bibitem{ref3} \href{https://chijournal.org/H527}{Analysis of Optimal Solutions of a Benchmark Water Distribution Network for Exploring the Global Optimality of the Current-best Solution}
 
-\bibitem{ref4} \href{https://www.mdpi.com/2073-4441/11/8/1637}{Generation of Benchmark Problems for Optimal Design of Water Distribution Systems | MDPI}
+	\bibitem{ref4} \href{https://www.mdpi.com/2073-4441/11/8/1637}{Generation of Benchmark Problems for Optimal Design of Water Distribution Systems | MDPI}
 
-\bibitem{ref5} \href{https://www.researchgate.net/publication/263555074_Design_of_water_distribution_networks_using_particle_swarm_optimization}{Design of water distribution networks using particle swarm optimization | Request PDF}
+	\bibitem{ref5} \href{https://www.researchgate.net/publication/263555074_Design_of_water_distribution_networks_using_particle_swarm_optimization}{Design of water distribution networks using particle swarm optimization | Request PDF}
 
-\bibitem{ref6} \href{https://www.researchgate.net/publication/270396349_Ant_colony_optimization_for_design_of_water_distribution_systems}{(PDF) Ant colony optimization for design of water distribution systems}
+	\bibitem{ref6} \href{https://www.researchgate.net/publication/270396349_Ant_colony_optimization_for_design_of_water_distribution_systems}{(PDF) Ant colony optimization for design of water distribution systems}
 
-\bibitem{ref7} \href{https://www.researchgate.net/publication/280095752_Optimization_of_the_Water_Distribution_Networks_with_Differential_Evolution_DE_and_Mixed_Integer_Linear_Programming_MILP}{(PDF) Optimization of the Water Distribution Networks with Differential Evolution (DE) and Mixed Integer Linear Programming (MILP)}
+	\bibitem{ref7} \href{https://www.researchgate.net/publication/280095752_Optimization_of_the_Water_Distribution_Networks_with_Differential_Evolution_DE_and_Mixed_Integer_Linear_Programming_MILP}{(PDF) Optimization of the Water Distribution Networks with Differential Evolution (DE) and Mixed Integer Linear Programming (MILP)}
 
-\bibitem{ref8} \href{https://www.researchgate.net/publication/364837949_Chaotic_differential_evolution_algorithms_for_optimal_design_of_water_distribution_networks}{Chaotic differential evolution algorithms for optimal design of water distribution networks | Request PDF}
+	\bibitem{ref8} \href{https://www.researchgate.net/publication/364837949_Chaotic_differential_evolution_algorithms_for_optimal_design_of_water_distribution_networks}{Chaotic differential evolution algorithms for optimal design of water distribution networks | Request PDF}
 
-\bibitem{ref9} \href{https://www.researchgate.net/publication/263555074_Design_of_water_distribution_networks_using_particle_swarm_optimization}{Design of water distribution networks using particle swarm optimization} 
+	\bibitem{ref9} \href{https://www.researchgate.net/publication/263555074_Design_of_water_distribution_networks_using_particle_swarm_optimization}{Design of water distribution networks using particle swarm optimization}
 
-\bibitem{ref10} \href{https://www.mdpi.com/2073-4441/15/10/1906}{Hybrid Optimization Algorithms of Firefly with GA and PSO for the Optimal Design of Water Distribution Networks | MDPI}
+	\bibitem{ref10} \href{https://www.mdpi.com/2073-4441/15/10/1906}{Hybrid Optimization Algorithms of Firefly with GA and PSO for the Optimal Design of Water Distribution Networks | MDPI}
 
-\bibitem{ref11} \href{https://www.mdpi.com/2073-4441/15/10/1906}{Hybrid Optimization Algorithms of Firefly with GA and PSO for the Optimal Design of Water Distribution Networks | MDPI}
+	\bibitem{ref11} \href{https://www.mdpi.com/2073-4441/15/10/1906}{Hybrid Optimization Algorithms of Firefly with GA and PSO for the Optimal Design of Water Distribution Networks | MDPI}
 
-\bibitem{ref12} \href{https://www.mdpi.com/2073-4441/15/10/1906}{Hybrid Optimization Algorithms of Firefly with GA and PSO for the Optimal Design of Water Distribution Networks | MDPI}
+	\bibitem{ref12} \href{https://www.mdpi.com/2073-4441/15/10/1906}{Hybrid Optimization Algorithms of Firefly with GA and PSO for the Optimal Design of Water Distribution Networks | MDPI}
 
-\bibitem{ref13} \href{https://www.mdpi.com/2073-4441/14/6/851}{Optimization of Water Distribution Networks Using Genetic Algorithm Based SOP--WDN Program}
+	\bibitem{ref13} \href{https://www.mdpi.com/2073-4441/14/6/851}{Optimization of Water Distribution Networks Using Genetic Algorithm Based SOP--WDN Program}
 
-\bibitem{ref14} \href{https://chijournal.org/H527}{Analysis of Optimal Solutions of a Benchmark Water Distribution Network for Exploring the Global Optimality of the Current-best Solution}
+	\bibitem{ref14} \href{https://chijournal.org/H527}{Analysis of Optimal Solutions of a Benchmark Water Distribution Network for Exploring the Global Optimality of the Current-best Solution}
 
-\bibitem{ref15} \href{https://link.springer.com/article/10.1007/s11831-023-09944-7}{Optimization of Water Distribution Systems Using Genetic Algorithms: A Review | Archives of Computational Methods in Engineering}
+	\bibitem{ref15} \href{https://link.springer.com/article/10.1007/s11831-023-09944-7}{Optimization of Water Distribution Systems Using Genetic Algorithms: A Review | Archives of Computational Methods in Engineering}
 
-\bibitem{ref16} \href{https://www.scribd.com/document/851139427/A-memetic-algorithm-applied-to-the-design-of-water-distribution-networks}{Memetic Algorithm for Water Network Design | PDF | Mathematical Optimization | Genetic Algorithm}
+	\bibitem{ref16} \href{https://www.scribd.com/document/851139427/A-memetic-algorithm-applied-to-the-design-of-water-distribution-networks}{Memetic Algorithm for Water Network Design | PDF | Mathematical Optimization | Genetic Algorithm}
 
-\bibitem{ref17} \href{https://link.springer.com/article/10.1007/BF02831784}{Reliability based design of water distribution networks using multi-objective genetic algorithms | KSCE Journal of Civil Engineering}
+	\bibitem{ref17} \href{https://link.springer.com/article/10.1007/BF02831784}{Reliability based design of water distribution networks using multi-objective genetic algorithms | KSCE Journal of Civil Engineering}
 
-\bibitem{ref18} \href{https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/}{Pareto fronts | Centre for Water Systems | University of Exeter}
+	\bibitem{ref18} \href{https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/}{Pareto fronts | Centre for Water Systems | University of Exeter}
 
-\bibitem{ref19} \href{https://pmc.ncbi.nlm.nih.gov/articles/PMC9704581/}{Multi-objective optimization of water distribution networks based on non-dominated sequencing genetic algorithm - PMC}
+	\bibitem{ref19} \href{https://pmc.ncbi.nlm.nih.gov/articles/PMC9704581/}{Multi-objective optimization of water distribution networks based on non-dominated sequencing genetic algorithm - PMC}
 
-\bibitem{ref20} \href{https://uknowledge.uky.edu/wdst_models/1/}{"01 Anytown" by Thomas M. Walski}
+	\bibitem{ref20} \href{https://uknowledge.uky.edu/wdst_models/1/}{"01 Anytown" by Thomas M. Walski}
 
-\bibitem{ref21} \href{https://arxiv.org/pdf/2503.17167}{arxiv.org}
+	\bibitem{ref21} \href{https://arxiv.org/pdf/2503.17167}{arxiv.org}
 
 \end{thebibliography}
 
