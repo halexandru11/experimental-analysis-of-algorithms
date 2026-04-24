@@ -408,7 +408,7 @@ def _build_progress_line(
 
 
 def main() -> None:
-    runs = 9
+    runs = 12
     # instance_name = "TLN.inp"
     # instance_name = "HAN.inp"
     instance_name = "BIN.inp"
@@ -590,7 +590,8 @@ def main() -> None:
                 break
         _render_progress()
 
-    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    # max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    max_workers = min(runs, max(1, (os.cpu_count() or 1) // 2))
     progress_thread = (
         threading.Thread(target=_progress_renderer_worker, daemon=True)
         if progress_enabled
