@@ -26,6 +26,8 @@ def run_differential_evolution(
     bounds: np.ndarray,
     rng: np.random.Generator,
     config: DifferentialEvolutionConfig,
+    checkpoint_interval: int,
+    checkpoint_callback: Callable[[int, list[dict[str, float]], list[np.ndarray], float], None],
     progress_callback: Callable[[int, float], None] | None = None,
 ) -> DifferentialEvolutionResult:
     dimension = bounds.shape[0]
@@ -81,7 +83,17 @@ def run_differential_evolution(
         best_vectors.append(best_vector.copy())
         if progress_callback is not None:
             progress_callback(generation + 1, best_fitness)
+        # Checkpointing: call checkpoint callback every checkpoint_interval generations
+        if checkpoint_interval and (generation + 1) % checkpoint_interval == 0:
+            # pass copies so the callback can safely serialize
+            checkpoint_callback(generation + 1, list(history), [v.copy() for v in best_vectors], best_fitness)
+            # clear in-memory history and best_vectors to free memory
+            history.clear()
+            best_vectors.clear()
 
+    # Final checkpoint at end of run (write remaining entries)
+    if checkpoint_interval:
+        checkpoint_callback(config.generations, list(history), [v.copy() for v in best_vectors], best_fitness)
     return DifferentialEvolutionResult(
         best_vectors=best_vectors, best_fitness=best_fitness, history=history
     )
