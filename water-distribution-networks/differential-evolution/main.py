@@ -134,7 +134,7 @@ def _run_single_experiment_worker(
 
     # checkpointing setup: write partial results every N generations
     results_dir = Path(results_dir_path)
-    checkpoint_interval = 50
+    checkpoint_interval = 200
     last_saved_generation = -1
 
     def _checkpoint_callback(
