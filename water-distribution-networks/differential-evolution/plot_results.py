@@ -294,12 +294,6 @@ def generate_plots(result_dir: Path) -> None:
     _plot_best_cost_distribution(result_dir, run_summaries)
     _write_plot_summary(result_dir, run_summaries)
 
-    print(f"Plots saved in: {result_dir}")
-    print("- convergence_over_runs.png")
-    print("- convergence_over_runs_log.png")
-    print("- best_cost_distribution.png")
-    print("- plot_summary.txt")
-
 
 def main() -> None:
     base_dir = Path(__file__).resolve().parent

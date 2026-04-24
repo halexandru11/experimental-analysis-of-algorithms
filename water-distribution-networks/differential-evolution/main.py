@@ -408,22 +408,22 @@ def _build_progress_line(
 
 
 def main() -> None:
-    runs = 3
-    instance_name = "TLN.inp"
+    runs = 9
+    # instance_name = "TLN.inp"
     # instance_name = "HAN.inp"
-    # instance_name = "BIN.inp"
+    instance_name = "BIN.inp"
 
-    mutation_factor = 0.5
-    crossover_rate = 0.8
+    # mutation_factor = 0.5
+    # crossover_rate = 0.8
 
-    # mutation_factor=0.65
-    # crossover_rate=0.85
+    mutation_factor = 0.65
+    crossover_rate = 0.85
 
     # mutation_factor=0.8
     # crossover_rate=0.9
 
     config = DifferentialEvolutionConfig(
-        generations=200,
+        generations=12000,
         population_size=50,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
@@ -433,7 +433,6 @@ def main() -> None:
     data_dir = base_dir / "data"
 
     preferred_instance_path = data_dir / instance_name
-    print("Data Dir: ", preferred_instance_path)
     if preferred_instance_path.exists():
         instance_path = preferred_instance_path
     else:
