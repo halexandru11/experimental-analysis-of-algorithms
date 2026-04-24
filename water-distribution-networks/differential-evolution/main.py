@@ -413,11 +413,11 @@ def main() -> None:
     # instance_name = "HAN.inp"
     instance_name = "BIN.inp"
 
-    # mutation_factor = 0.5
-    # crossover_rate = 0.8
+    mutation_factor = 0.5
+    crossover_rate = 0.8
 
-    mutation_factor = 0.65
-    crossover_rate = 0.85
+    # mutation_factor = 0.65
+    # crossover_rate = 0.85
 
     # mutation_factor=0.8
     # crossover_rate=0.9
