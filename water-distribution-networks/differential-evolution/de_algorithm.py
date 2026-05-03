@@ -29,26 +29,57 @@ def run_differential_evolution(
     checkpoint_interval: int,
     checkpoint_callback: Callable[[int, list[dict[str, float]], list[np.ndarray], float], None],
     progress_callback: Callable[[int, float], None] | None = None,
+    resume_state: dict | None = None,
 ) -> DifferentialEvolutionResult:
     dimension = bounds.shape[0]
     low = bounds[:, 0]
     high = bounds[:, 1]
 
-    population = rng.uniform(
-        low=low, high=high, size=(config.population_size, dimension)
-    )
-    fitness = np.array(
-        [objective(individual) for individual in population], dtype=float
-    )
+    # Resume from checkpoint if provided
+    if resume_state is not None:
+        population = resume_state.get("population", None)
+        fitness = resume_state.get("fitness", None)
+        best_vector = resume_state.get("best_vector", None)
+        best_fitness = resume_state.get("best_fitness", float("inf"))
+        start_generation = resume_state.get("start_generation", 0)
+        history: list[dict[str, float]] = resume_state.get("history", [])
+        best_vectors: list[np.ndarray] = resume_state.get("best_vectors", [])
+        
+        # If population/fitness are missing (not saved to disk), reinitialize them
+        # but preserve the generation offset and best solution found so far
+        if population is None or fitness is None:
+            population = rng.uniform(
+                low=low, high=high, size=(config.population_size, dimension)
+            )
+            fitness = np.array(
+                [objective(individual) for individual in population], dtype=float
+            )
+            # If we have a best_vector from checkpoint, seed it into the population
+            if best_vector is not None:
+                population[0] = best_vector.copy()
+                fitness[0] = objective(best_vector)
+        
+        # Ensure best_vector is valid
+        if best_vector is None:
+            best_idx = int(np.argmin(fitness))
+            best_vector = population[best_idx].copy()
+            best_fitness = float(fitness[best_idx])
+    else:
+        population = rng.uniform(
+            low=low, high=high, size=(config.population_size, dimension)
+        )
+        fitness = np.array(
+            [objective(individual) for individual in population], dtype=float
+        )
 
-    best_idx = int(np.argmin(fitness))
-    best_vector = population[best_idx].copy()
-    best_fitness = float(fitness[best_idx])
+        best_idx = int(np.argmin(fitness))
+        best_vector = population[best_idx].copy()
+        best_fitness = float(fitness[best_idx])
+        start_generation = 0
+        history: list[dict[str, float]] = []
+        best_vectors: list[np.ndarray] = []
 
-    history: list[dict[str, float]] = []
-    best_vectors: list[np.ndarray] = []
-
-    for generation in range(config.generations):
+    for generation in range(start_generation, config.generations):
         for i in range(config.population_size):
             choices = [idx for idx in range(config.population_size) if idx != i]
             r1, r2, r3 = rng.choice(choices, size=3, replace=False)

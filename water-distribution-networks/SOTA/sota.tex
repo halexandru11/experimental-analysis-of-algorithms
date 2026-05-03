@@ -866,10 +866,10 @@ For HAN the two lower-F variants (0.50 and 0.65) both achieve the published best
 		Mean run time       & 02:39:37     &  & \\
 		\hline
 	\end{tabular}
-	\caption{Balerma (BIN)}
+	\caption{Balerma (BIN) baseline from the earlier 3000-generation run}
 \end{table}
 
-BIN is a much larger instance; DE made steady progress but remains substantially above the published best. The convergence plot shows continuous improvement across generations but the gap indicates either insufficient evaluation budget or that specialized heuristics/local search are required for very large networks. The reported best is ~15.9\% above the published reference; improving BIN will require more generations or hybrid local refinement.
+BIN is a much larger instance; DE made steady progress but remains above the published best. The convergence plot shows continuous improvement across generations, but the earlier 3000-generation baseline still left a sizeable gap. The newer 12000-generation resumed run below closes that gap substantially.
 
 
 \begin{table}[H]
@@ -999,6 +999,45 @@ Below are targeted improvements that would increase the scientific rigour and pr
 \subsection{Summary}
 
 The DE experiments in this project are implemented with careful engineering for WDN problems: snapping-to-discrete-diameters, caching hydraulic evaluations, and an evaluation penalty structure that prefers feasible designs. Results show DE is a practical and competitive method for medium benchmarks and highlight areas for further work on large-scale instances (evaluation budget, faster hydraulic evaluations and budget-normalised comparisons).
+
+\subsection{Balerma Improvement Over the Baseline}
+
+The longer resumed DE run on BIN improves noticeably over the earlier 3000-generation baseline. This is the most important large-network result in the current report because it shows that the same DE pipeline can continue to make progress when given a much larger evaluation budget.
+
+\begin{table}[H]
+\centering
+\caption{Balerma (BIN): baseline versus the longer resumed DE run.}
+\label{tab:bin-improvement}
+\small
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l r r r}
+\hline
+Setting & Best cost (\$) & Gap to published best (\%) & Gap reduction (pp) \\
+\hline
+3000-generation baseline & 2,267,457.71 & 15.93 & -- \\
+12000-generation resumed run & 2,019,830.43 & 3.26 & 12.67 \\
+\hline
+\end{tabular}
+}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{../differential-evolution/results/BIN-12000-50-50-80_f90a5e/convergence_over_runs_trim15.png}
+\caption{Balerma (BIN): convergence across the resumed 12000-generation DE run. The best curve reaches the improved 3.26\% gap shown in Table~\ref{tab:bin-improvement}.}
+\end{figure}
+
+The practical interpretation is straightforward: the Balerma search is still not at the published reference, but the longer run closes most of the remaining gap. That makes the DE implementation much more defensible as a large-instance optimizer than the earlier 3000-generation baseline suggested.
+
+\begin{itemize}
+	\item The improvement came from continuing the same search rather than changing the benchmark or the evaluator.
+	\item The result suggests that Balerma is budget-limited: more generations still matter.
+	\item The remaining gap is small enough that stronger diversification or a memetic/local-search layer is now a plausible next step.
+\end{itemize}
+
+
+
+We also implemented a resume/checkpoint mechanism for DE runs after observing crashes during several 12,000-generation runs; this allows interrupted experiments to continue from the last checkpoint rather than restarting from scratch.
 
 
 \begin{thebibliography}{99}
