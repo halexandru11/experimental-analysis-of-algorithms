@@ -971,6 +971,80 @@ Figure snapshots of the best run for each benchmark provide an immediate visual 
 The visualisations highlight common design patterns. In TLN (small, highly constrained) the solution uses a small number of discrete diameters and emphasises a few critical links. HAN shows a mix of large trunk mains and smaller lateral branches; the trunk sizing is critical to reach the published benchmark cost while keeping junction pressures acceptable. BIN, the largest instance, shows regionalised reinforcement where a few arterial pipes are significantly larger than many smaller distribution branches — this spatial heterogeneity explains why specialised local refinement or problem decomposition can help close the remaining gap to published bests.
 
 
+\subsection{Balerma Improvement Over the Baseline}
+
+Following the initial benchmark experiments, Differential Evolution (DE) was selected for further study, as it consistently outperformed the Genetic Algorithm (GA) baseline on the considered water distribution network instances.
+
+\subsubsection{Motivation}
+
+The initial DE implementation produced better solutions than GA, but the computational cost limited the number of experiments that could be executed. To increase the experimental budget and allow longer optimization runs, several implementation-level optimizations were introduced.
+
+\subsubsection{Implementation Optimizations}
+
+The following optimizations were added to the DE pipeline:
+
+\begin{itemize}
+    \item \textbf{Hydraulic simulation caching.}  
+    Results of previously evaluated candidate solutions are stored and reused whenever the same solution is encountered again, avoiding redundant hydraulic simulations.
+
+    \item \textbf{Batched history logging.}  
+    Optimization history is accumulated in memory and written to disk in batches of 200 entries. After each write operation, the in-memory buffer is cleared. This reduces both I/O overhead and memory usage while preserving all data required for later plotting and analysis.
+\end{itemize}
+
+\subsubsection{Runtime Improvement}
+
+The introduced optimizations reduced the execution time of a 3000-generation experiment as follows:
+
+\begin{table}[H]
+\centering
+\caption{Runtime comparison before and after implementation optimizations.}
+\label{tab:bin-runtime-improvement}
+\small
+\begin{tabular}{l c}
+\hline
+Configuration & Runtime for 3000 generations \\
+\hline
+Original DE implementation & 2 h 39 min \\
+Optimized DE implementation & 2 h 04 min \\
+\hline
+\end{tabular}
+\end{table}
+
+This runtime reduction enabled substantially larger experiments. Specifically, 12 independent runs with 12000 generations were executed, each requiring approximately 8 hours and 20 minutes.
+
+\subsubsection{Solution Quality Improvement}
+
+The increased evaluation budget produced a significant improvement in the final network cost:
+
+\begin{table}[H]
+\centering
+\caption{Balerma cost improvement after extending DE experiments.}
+\label{tab:bin-cost-improvement}
+\small
+\begin{tabular}{l c c}
+\hline
+Experiment setting & Gap to published best (\%) & Best cost (\$) \\
+\hline
+Baseline DE (3000 generations) & 15.93 & 2,267,457.71 \\
+Extended DE (12000 generations) & 3.26 & 2,019,830.43 \\
+\hline
+\end{tabular}
+\end{table}
+
+The optimizations reduced the gap to the published state-of-the-art solution from 15.93\% to 3.26\%.
+
+\subsubsection{Observed Convergence Behavior}
+
+Analysis of the convergence history suggests that the optimization process likely approached a local optimum. Across the performed runs, no meaningful improvement was observed after approximately generation 9000.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{../differential-evolution/results/BIN-12000-50-50-80_f90a5e/convergence_over_runs_trim15.png}
+\caption{Balerma (BIN): convergence across 12000-generation DE runs.}
+\end{figure}
+
+Although the search appeared to stagnate, only 12 independent runs were conducted due to computational limitations. Since DE is stochastic, a larger number of runs may still yield better solutions and potentially reduce the remaining gap to the published best-known result.
+
 \subsection{Limitations of the Current DE Design}
 
 The experiments reported above were constructed to be reproducible and informative, but several design choices limit how the results should be interpreted and constrain the attainable performance. Key limitations include:
@@ -996,49 +1070,28 @@ Below are targeted improvements that would increase the scientific rigour and pr
 	\item \textbf{I/O and concurrency hardening:} reduce file-system overhead (in-memory caching, fewer temporary files) and validate concurrent simulation behaviour under heavier parallelism.
 \end{itemize}
 
+
 \subsection{Summary}
 
-The DE experiments in this project are implemented with careful engineering for WDN problems: snapping-to-discrete-diameters, caching hydraulic evaluations, and an evaluation penalty structure that prefers feasible designs. Results show DE is a practical and competitive method for medium benchmarks and highlight areas for further work on large-scale instances (evaluation budget, faster hydraulic evaluations and budget-normalised comparisons).
+Differential Evolution (DE) consistently outperformed the Genetic Algorithm (GA) baseline on the evaluated benchmark networks, motivating further experimentation using DE exclusively.
 
-\subsection{Balerma Improvement Over the Baseline}
-
-The longer resumed DE run on BIN improves noticeably over the earlier 3000-generation baseline. This is the most important large-network result in the current report because it shows that the same DE pipeline can continue to make progress when given a much larger evaluation budget.
-
-\begin{table}[H]
-\centering
-\caption{Balerma (BIN): baseline versus the longer resumed DE run.}
-\label{tab:bin-improvement}
-\small
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{l r r r}
-\hline
-Setting & Best cost (\$) & Gap to published best (\%) & Gap reduction (pp) \\
-\hline
-3000-generation baseline & 2,267,457.71 & 15.93 & -- \\
-12000-generation resumed run & 2,019,830.43 & 3.26 & 12.67 \\
-\hline
-\end{tabular}
-}
-\end{table}
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.95\textwidth]{../differential-evolution/results/BIN-12000-50-50-80_f90a5e/convergence_over_runs_trim15.png}
-\caption{Balerma (BIN): convergence across the resumed 12000-generation DE run. The best curve reaches the improved 3.26\% gap shown in Table~\ref{tab:bin-improvement}.}
-\end{figure}
-
-The practical interpretation is straightforward: the Balerma search is still not at the published reference, but the longer run closes most of the remaining gap. That makes the DE implementation much more defensible as a large-instance optimizer than the earlier 3000-generation baseline suggested.
+To enable a larger experimental budget and longer optimization runs, several implementation-level optimizations were introduced:
 
 \begin{itemize}
-	\item The improvement came from continuing the same search rather than changing the benchmark or the evaluator.
-	\item The result suggests that Balerma is budget-limited: more generations still matter.
-	\item The remaining gap is small enough that stronger diversification or a memetic/local-search layer is now a plausible next step.
+    \item \textbf{Discrete diameter snapping} to ensure feasible pipe diameter assignments.
+    \item \textbf{Hydraulic simulation caching} to avoid redundant evaluations of previously encountered solutions.
+    \item \textbf{Batched history logging} to reduce memory usage and file I/O overhead during long experiments.
 \end{itemize}
 
+These optimizations produced the following practical improvements:
 
+\begin{itemize}
+    \item Runtime for a 3000-generation Balerma run decreased from \textbf{2 h 39 min} to \textbf{2 h 04 min}.
+    \item The reduced runtime enabled \textbf{12 runs of 12000 generations}, each requiring approximately \textbf{8 h 20 min}.
+    \item The gap to the published state-of-the-art solution on Balerma was reduced from \textbf{15.93\%} to \textbf{3.26\%}.
+\end{itemize}
 
-We also implemented a resume/checkpoint mechanism for DE runs after observing crashes during several 12,000-generation runs; this allows interrupted experiments to continue from the last checkpoint rather than restarting from scratch.
-
+Although substantial improvements were obtained, convergence analysis suggests that the search likely approached a local optimum after approximately generation 9000. Additional runs or stronger diversification strategies may be required to further reduce the remaining gap.
 
 \begin{thebibliography}{99}
 
