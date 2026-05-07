@@ -29,6 +29,69 @@
     "confidence": "High",
     "notes": "Best value 419000 confirmed in Siew & Tanyimboh (2012), Section 5.1/Table 1; Exeter link retained for benchmark data/spec context."
   },
+  "NYT.inp": {
+    "published_best_universal_score": 38642000,
+    "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
+    "published_best_source": "Murphy, Simpson & Dandy (1993/1994); benchmark summaries and later optimization studies citing best feasible NYT solution ≈ $38.642M.",
+    "published_best_source_links": [
+      "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/"
+    ],
+    "source_reliability": "Medium",
+    "benchmark_name": "New York Tunnel Network",
+    "objective_type": "minimize total pipe duplication cost",
+    "diameter_set": [
+      {"diameter_m": 0.9144, "unit_cost_per_m": 0},
+      {"diameter_m": 1.2192, "unit_cost_per_m": 0},
+      {"diameter_m": 1.5240, "unit_cost_per_m": 0},
+      {"diameter_m": 1.8288, "unit_cost_per_m": 0},
+      {"diameter_m": 2.1336, "unit_cost_per_m": 0},
+      {"diameter_m": 2.4384, "unit_cost_per_m": 0},
+      {"diameter_m": 2.7432, "unit_cost_per_m": 0},
+      {"diameter_m": 3.0480, "unit_cost_per_m": 0},
+      {"diameter_m": 3.3528, "unit_cost_per_m": 0},
+      {"diameter_m": 3.6576, "unit_cost_per_m": 0},
+      {"diameter_m": 3.9624, "unit_cost_per_m": 0},
+      {"diameter_m": 4.2672, "unit_cost_per_m": 0},
+      {"diameter_m": 4.5720, "unit_cost_per_m": 0},
+      {"diameter_m": 4.8768, "unit_cost_per_m": 0},
+      {"diameter_m": 5.1816, "unit_cost_per_m": 0}
+    ],
+    "cost_definition": "nonlinear pipe duplication cost function from NYT benchmark literature",
+    "constraints": "minimum pressure head >= 255 ft at all nodes except node 16 >= 260 ft, node 17 >= 272.8 ft, source node 1 = 300 ft",
+    "simulation_assumptions": "Hazen-Williams, typically C=100, EPANET-style hydraulic feasibility",
+    "units": "USD for cost, feet in original benchmark (network often converted to meters)",
+    "replicable_apples_to_apples": true,
+    "confidence": "Medium",
+    "notes": "NYT literature contains multiple reported minima depending on HW constants; 38.642M is a commonly cited feasible benchmark under standard settings."
+  },
+  "GOY.inp": {
+    "published_best_universal_score": 177010359,
+    "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
+    "published_best_source": "Optimization of Water Distribution Networks Using Genetic Algorithm Based SOP-WDN Program (Water 2022), plus benchmark reviews citing best feasible GoYang cost.",
+    "published_best_source_links": [
+      "https://www.mdpi.com/2073-4441/14/6/851"
+    ],
+    "source_reliability": "High",
+    "benchmark_name": "GoYang Network",
+    "objective_type": "minimize total pipe cost",
+    "diameter_set": [
+      {"diameter_m": 0.080, "unit_cost_per_m": 37890},
+      {"diameter_m": 0.100, "unit_cost_per_m": 38933},
+      {"diameter_m": 0.125, "unit_cost_per_m": 40563},
+      {"diameter_m": 0.150, "unit_cost_per_m": 42554},
+      {"diameter_m": 0.200, "unit_cost_per_m": 47624},
+      {"diameter_m": 0.250, "unit_cost_per_m": 54125},
+      {"diameter_m": 0.300, "unit_cost_per_m": 62109},
+      {"diameter_m": 0.350, "unit_cost_per_m": 71524}
+    ],
+    "cost_definition": "sum(unit_cost(d_i) * pipe_length_i)",
+    "constraints": "minimum pressure head >= 15m above elevation at all demand nodes",
+    "simulation_assumptions": "Hazen-Williams, C=100, single fixed pump 4.52 kW, EPANET hydraulic feasibility",
+    "units": "KRW (Won) for cost, meters for lengths/heads",
+    "replicable_apples_to_apples": true,
+    "confidence": "High",
+    "notes": "Benchmark has 30 pipes, 22 nodes, 9 loops, 1 reservoir/tank and fixed pump. Best feasible cost commonly reported as 177,010,359 Won."
+  },
   "HAN.inp": {
     "published_best_universal_score": 6081000,
     "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
