@@ -54,7 +54,6 @@ def generate_for_results(results_dir: Path) -> None:
     )
 
     # find best run id from run_summaries.csv if available
-    best_run_id = None
     run_cost = None
     summaries_path = results_dir / "run_summaries.csv"
     if summaries_path.exists():
@@ -70,17 +69,10 @@ def generate_for_results(results_dir: Path) -> None:
                     run_cost = cost
                     best_run_id = rid
 
-    # fallback: pick first run_*_best_vector.csv
-    if best_run_id is None:
-        files = sorted(results_dir.glob("run_*_best_vector.csv"))
-        if not files:
-            raise SystemExit("No best vector files found")
-        best_vec_path = files[0]
-    else:
-        best_vec_path = results_dir / f"run_{best_run_id:02d}_best_vector.csv"
-        if not best_vec_path.exists():
-            files = sorted(results_dir.glob("run_*_best_vector.csv"))
-            best_vec_path = files[0]
+    files = sorted(results_dir.glob("run_*_best_vectors.csv"))
+    if not files:
+        raise SystemExit("No best vector files found")
+    best_vec_path = files[0]
 
     vec = load_best_vector(best_vec_path)
     snapped = snap_to_allowed(vec, allowed)

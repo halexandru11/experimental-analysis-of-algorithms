@@ -434,9 +434,9 @@ def _build_progress_line(
 
 def main() -> None:
     runs = 12
-    # instance_name = "TLN.inp"
-    instance_name = "NYT.inp"
-    instance_name = "GOY.inp"
+    instance_name = "TLN.inp"
+    # instance_name = "NYT.inp"
+    # instance_name = "GOY.inp"
     # instance_name = "HAN.inp"
     # instance_name = "BIN.inp"
 
