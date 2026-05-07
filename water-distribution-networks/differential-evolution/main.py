@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from collections import OrderedDict
 from concurrent.futures import as_completed, ProcessPoolExecutor
 import hashlib
 import multiprocessing
@@ -21,6 +22,30 @@ import wntr
 from de_algorithm import DifferentialEvolutionConfig, run_differential_evolution
 from inp_parser import InpFileParser
 from plot_results import generate_plots
+
+OBJECTIVE_CACHE_CAPACITY = 1000
+
+
+class LRUObjectiveCache:
+    def __init__(self, capacity: int) -> None:
+        if capacity <= 0:
+            raise ValueError("LRU cache capacity must be positive.")
+        self.capacity = capacity
+        self._store: OrderedDict[tuple[float, ...], float] = OrderedDict()
+
+    def get(self, key: tuple[float, ...]) -> float | None:
+        value = self._store.get(key)
+        if value is None:
+            return None
+        self._store.move_to_end(key)
+        return value
+
+    def set(self, key: tuple[float, ...], value: float) -> None:
+        if key in self._store:
+            self._store.move_to_end(key)
+        self._store[key] = value
+        if len(self._store) > self.capacity:
+            self._store.popitem(last=False)
 
 
 def _smallest_instance_by_pipe_count(data_dir: Path) -> Path:
@@ -105,17 +130,13 @@ def _run_single_experiment_worker(
     """
 
     # Local helpers to update progress in the manager-shared state
-    def _mark_progress_started_local(
-        run_id: int, initial_done_generations: int = 0, initial_best_cost: float | None = None
-    ) -> None:
+    def _mark_progress_started_local(run_id: int) -> None:
         with progress_lock_proxy:
             state = progress_state_proxy[run_id]
             state["start_time"] = time.monotonic()
             state["finished"] = False
             state["finished_elapsed_seconds"] = None
-            state["done_generations"] = int(initial_done_generations)
-            if initial_best_cost is not None:
-                state["best_cost"] = float(initial_best_cost)
+            state["done_generations"] = 0
 
     def _update_progress_local(
         run_id: int, done_generations: int, best_cost: float
@@ -126,13 +147,12 @@ def _run_single_experiment_worker(
             state["best_cost"] = float(best_cost)
 
     # Start
-    initial_done_generations = 0
-    initial_best_cost: float | None = None
+    _mark_progress_started_local(run_id)
     wn, temp_inp = _load_wntr_model_robust(Path(instance_path))
     # Create a temporary directory for EPANET output files to avoid collisions
     tmpdir = tempfile.TemporaryDirectory()
     file_prefix = os.path.join(tmpdir.name, f"run_{run_id}_{os.getpid()}")
-    objective_cache: dict[tuple[float, ...], float] = {}
+    objective_cache = LRUObjectiveCache(capacity=OBJECTIVE_CACHE_CAPACITY)
 
     # Recreate config object from dict
     config = DifferentialEvolutionConfig(**config_dict)
@@ -141,77 +161,6 @@ def _run_single_experiment_worker(
     results_dir = Path(results_dir_path)
     checkpoint_interval = 50
     last_saved_generation = -1
-    
-    # Detect and load checkpoint if it exists
-    resume_state = None
-    hist_path = results_dir / f"run_{run_id:02d}_history.csv"
-    best_vecs_path = results_dir / f"run_{run_id:02d}_best_vectors.csv"
-    
-    if hist_path.exists() and best_vecs_path.exists():
-        try:
-            # Read history CSV to get last generation
-            last_generation = -1
-            history_rows = []
-            with hist_path.open("r", encoding="utf-8") as fh:
-                reader = csv.DictReader(fh)
-                for row in reader:
-                    history_rows.append(row)
-                    try:
-                        last_generation = max(last_generation, int(float(row.get("generation", -1))))
-                    except (ValueError, TypeError):
-                        pass
-            
-            # Read best vectors CSV
-            best_vectors = []
-            with best_vecs_path.open("r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if line:
-                        try:
-                            vec = np.array([float(x) for x in line.split(",")])
-                            best_vectors.append(vec)
-                        except (ValueError, IndexError):
-                            pass
-            
-            # If we have checkpoint data and haven't finished all generations, prepare resume state
-            if last_generation >= 0 and last_generation < config.generations - 1 and best_vectors:
-                best_vector = best_vectors[-1].copy()
-                
-                # Try to infer best_fitness from history
-                best_fitness = float("inf")
-                for row in history_rows:
-                    try:
-                        bf = float(row.get("best_cost", row.get("best_fitness", float("inf"))))
-                        best_fitness = min(best_fitness, bf)
-                    except (ValueError, TypeError):
-                        pass
-                
-                # Prepare resume state with what we have
-                # Note: population and fitness arrays are not saved, so they will be re-initialized
-                resume_state = {
-                    "best_vector": best_vector,
-                    "best_fitness": best_fitness if best_fitness != float("inf") else None,
-                    "best_vectors": best_vectors,
-                    "history": [
-                        {k: float(v) if k != "generation" else int(float(v)) for k, v in row.items()}
-                        for row in history_rows
-                    ],
-                    "start_generation": last_generation + 1,
-                    "population": None,  # Will be re-initialized with best solution seeded
-                    "fitness": None,
-                }
-                last_saved_generation = last_generation
-                initial_done_generations = last_generation + 1
-                initial_best_cost = best_fitness if best_fitness != float("inf") else None
-        except Exception:
-            # If checkpoint loading fails, proceed with fresh start
-            resume_state = None
-
-    _mark_progress_started_local(
-        run_id,
-        initial_done_generations=initial_done_generations,
-        initial_best_cost=initial_best_cost,
-    )
 
     def _checkpoint_callback(
         gen: int,
@@ -377,7 +326,7 @@ def _run_single_experiment_worker(
         except Exception:
             value = cost + 1e12
 
-        objective_cache[key] = value
+        objective_cache.set(key, value)
         return value
 
     try:
@@ -394,7 +343,6 @@ def _run_single_experiment_worker(
             progress_callback=lambda generation, best: _update_progress_local(
                 run_id, generation, best
             ),
-            resume_state=resume_state,
         )
 
         best_cost = result.best_fitness
@@ -449,106 +397,6 @@ def _format_duration(seconds: float | None) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
-def _find_incomplete_results_dir(
-    results_root: Path, instance_stem: str, config: DifferentialEvolutionConfig, runs: int
-) -> Path | None:
-    """Find the most recent results directory for an instance with incomplete runs."""
-    if not results_root.exists():
-        return None
-
-    # Find directories matching the instance name
-    candidates = []
-    for results_dir in sorted(results_root.iterdir()):
-        if not results_dir.is_dir():
-            continue
-        if not results_dir.name.startswith(instance_stem):
-            continue
-        candidates.append(results_dir)
-
-    if not candidates:
-        return None
-
-    # Check most recent first
-    for results_dir in reversed(candidates):
-        try:
-            # Read experiment config to verify matching DE parameters
-            exp_meta_path = results_dir / "experiment_config.json"
-            if not exp_meta_path.exists():
-                continue
-            exp_meta = json.loads(exp_meta_path.read_text(encoding="utf-8"))
-            de_conf = exp_meta.get("de_config", {})
-
-            # Verify config and run count match
-            if (
-                de_conf.get("generations") != config.generations
-                or de_conf.get("population_size") != config.population_size
-                or de_conf.get("mutation_factor") != config.mutation_factor
-                or de_conf.get("crossover_rate") != config.crossover_rate
-                or exp_meta.get("runs") != runs
-            ):
-                continue
-
-            # Check if any runs are incomplete
-            for run_id in range(1, runs + 1):
-                hist_path = results_dir / f"run_{run_id:02d}_history.csv"
-                if hist_path.exists():
-                    try:
-                        # Check if last generation is less than total generations
-                        last_gen = -1
-                        with hist_path.open("r", encoding="utf-8") as fh:
-                            reader = csv.DictReader(fh)
-                            for row in reader:
-                                try:
-                                    last_gen = max(last_gen, int(float(row.get("generation", -1))))
-                                except (ValueError, TypeError):
-                                    pass
-
-                        if last_gen >= 0 and last_gen < config.generations - 1:
-                            # Found an incomplete run
-                            return results_dir
-                    except Exception:
-                        continue
-
-            # No incomplete runs in this directory, check next
-        except Exception:
-            continue
-
-    return None
-
-
-def _load_run_progress_snapshot(
-    results_dir: Path, run_id: int
-) -> tuple[int, float | None, bool]:
-    """Return (last_generation, best_cost, completed) for a saved run."""
-    hist_path = results_dir / f"run_{run_id:02d}_history.csv"
-    if not hist_path.exists():
-        return -1, None, False
-
-    last_generation = -1
-    last_best_cost: float | None = None
-    try:
-        with hist_path.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                try:
-                    last_generation = max(
-                        last_generation, int(float(row.get("generation", -1)))
-                    )
-                except (TypeError, ValueError):
-                    pass
-                for key in ("best_cost", "best_fitness"):
-                    value = row.get(key)
-                    if value is not None:
-                        try:
-                            last_best_cost = float(value)
-                        except (TypeError, ValueError):
-                            pass
-    except Exception:
-        return -1, None, False
-
-    return last_generation, last_best_cost, last_generation >= 0
-
-
 def _build_progress_line(
     run_id: int,
     done_generations: int,
@@ -587,8 +435,10 @@ def _build_progress_line(
 def main() -> None:
     runs = 12
     # instance_name = "TLN.inp"
+    instance_name = "NYT.inp"
+    instance_name = "GOY.inp"
     # instance_name = "HAN.inp"
-    instance_name = "BIN.inp"
+    # instance_name = "BIN.inp"
 
     mutation_factor = 0.5
     crossover_rate = 0.8
@@ -600,8 +450,8 @@ def main() -> None:
     # crossover_rate=0.9
 
     config = DifferentialEvolutionConfig(
-        generations=12000,
-        population_size=50,
+        generations=200,
+        population_size=40,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
     )
@@ -651,27 +501,14 @@ def main() -> None:
     # Note: per-run work is executed in separate processes using
     # _run_single_experiment_worker defined above.
 
-    results_root = Path(__file__).resolve().parent / "results"
-    
-    # Try to find an existing incomplete results directory for this instance
-    existing_results_dir = _find_incomplete_results_dir(
-        results_root, instance_path.stem, config, runs
+    instance_hash = hashlib.md5(uuid.uuid4().bytes).hexdigest()[:6]
+    instance_run_id = f"{config.generations}-{config.population_size}-{int(config.mutation_factor * 100)}-{int(config.crossover_rate * 100)}_{instance_hash}"
+    results_dir = (
+        Path(__file__).resolve().parent
+        / "results"
+        / f"{instance_path.stem}-{instance_run_id}"
     )
-    
-    if existing_results_dir:
-        results_dir = existing_results_dir
-        print(f"Resuming from existing results directory: {results_dir.name}")
-    else:
-        # Create a new results directory with hash
-        instance_hash = hashlib.md5(uuid.uuid4().bytes).hexdigest()[:6]
-        instance_run_id = f"{config.generations}-{config.population_size}-{int(config.mutation_factor * 100)}-{int(config.crossover_rate * 100)}_{instance_hash}"
-        results_dir = (
-            Path(__file__).resolve().parent
-            / "results"
-            / f"{instance_path.stem}-{instance_run_id}"
-        )
-        results_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Created new results directory: {results_dir.name}")
+    results_dir.mkdir(parents=True, exist_ok=True)
 
     experiment_meta = {
         "instance": instance_path.name,
@@ -701,22 +538,17 @@ def main() -> None:
     run_durations_seconds: list[float] = []
     run_summaries: list[dict[str, float]] = []
 
-    run_progress_snapshots: dict[int, tuple[int, float | None, bool]] = {}
-    for run_id in range(1, runs + 1):
-        run_progress_snapshots[run_id] = _load_run_progress_snapshot(results_dir, run_id)
-
     # Use multiprocessing Manager to share progress state and a lock between processes
     manager = multiprocessing.Manager()
     progress_lock = manager.RLock()
     progress_state = manager.dict()
     for run_id in range(1, runs + 1):
-        last_generation, last_best_cost, completed = run_progress_snapshots[run_id]
         progress_state[run_id] = manager.dict(
             {
-                "done_generations": config.generations if completed and last_generation >= config.generations - 1 else max(0, last_generation + 1),
+                "done_generations": 0,
                 "start_time": None,
-                "finished": completed and last_generation >= config.generations - 1,
-                "best_cost": last_best_cost,
+                "finished": False,
+                "best_cost": None,
                 "finished_elapsed_seconds": None,
             }
         )
@@ -785,8 +617,8 @@ def main() -> None:
                 break
         _render_progress()
 
-    # max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
-    max_workers = min(runs, max(1, (os.cpu_count() or 1) // 2))
+    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    # max_workers = min(runs, max(1, (os.cpu_count() or 1) // 2))
     progress_thread = (
         threading.Thread(target=_progress_renderer_worker, daemon=True)
         if progress_enabled
@@ -807,30 +639,26 @@ def main() -> None:
     try:
         # Use ProcessPoolExecutor to parallelize across OS processes
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {}
-            for run_id in range(1, runs + 1):
-                last_generation, _, completed = run_progress_snapshots[run_id]
-                if completed and last_generation >= config.generations - 1:
-                    continue
-                futures[
-                    executor.submit(
-                        _run_single_experiment_worker,
-                        run_id,
-                        str(instance_path),
-                        pipe_ids,
-                        allowed_diameters,
-                        unit_costs,
-                        pipe_lengths,
-                        junction_names,
-                        bounds,
-                        config_dict,
-                        published_best_cost,
-                        min_head,
-                        progress_state,
-                        progress_lock,
-                        str(results_dir),
-                    )
-                ] = run_id
+            futures = {
+                executor.submit(
+                    _run_single_experiment_worker,
+                    run_id,
+                    str(instance_path),
+                    pipe_ids,
+                    allowed_diameters,
+                    unit_costs,
+                    pipe_lengths,
+                    junction_names,
+                    bounds,
+                    config_dict,
+                    published_best_cost,
+                    min_head,
+                    progress_state,
+                    progress_lock,
+                    str(results_dir),
+                ): run_id
+                for run_id in range(1, runs + 1)
+            }
             for future in as_completed(futures):
                 run_payload = future.result()
                 run_id = int(run_payload["run_id"])
