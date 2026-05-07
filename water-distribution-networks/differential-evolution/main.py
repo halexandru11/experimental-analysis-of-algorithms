@@ -92,19 +92,108 @@ def _snap_to_allowed_diameters(
 def _load_wntr_model_robust(
     inp_path: Path,
 ) -> tuple[wntr.network.WaterNetworkModel, Path | None]:
+    def _rewrite_inp_if_needed(text: str) -> str:
+        rewritten_lines: list[str] = []
+        current_section: str | None = None
+        converted_reservoirs: list[str] = []
+        reservoir_inserted = False
+        changed = False
+
+        for line in text.splitlines():
+            stripped = line.strip()
+            upper = stripped.upper()
+
+            if upper.startswith("[") and upper.endswith("]"):
+                if (
+                    converted_reservoirs
+                    and not reservoir_inserted
+                    and upper in {"[TANKS]", "[PIPES]", "[PUMPS]", "[VALVES]", "[END]"}
+                ):
+                    rewritten_lines.extend(
+                        ["[RESERVOIRS]", "; Converted from simplified [TANKS] entries."]
+                    )
+                    rewritten_lines.extend(converted_reservoirs)
+                    reservoir_inserted = True
+                    changed = True
+
+                current_section = upper
+                if current_section == "[RESERVOIRS]":
+                    reservoir_inserted = True
+
+            if current_section == "[OPTIONS]" and upper.startswith("UNITS"):
+                parts = stripped.split()
+                if len(parts) >= 2 and parts[1].upper() == "SI":
+                    leading = line[: len(line) - len(line.lstrip())]
+                    rewritten_lines.append(f"{leading}UNITS                LPS")
+                    changed = True
+                    continue
+
+            if (
+                current_section == "[TANKS]"
+                and stripped
+                and not stripped.startswith(";")
+            ):
+                parts = stripped.split()
+                if len(parts) == 2:
+                    leading = line[: len(line) - len(line.lstrip())]
+                    converted_reservoirs.append(f"{leading}{parts[0]} {parts[1]}")
+                    changed = True
+                    continue
+
+            if (
+                current_section == "[PUMPS]"
+                and stripped
+                and not stripped.startswith(";")
+            ):
+                parts = stripped.split()
+                if len(parts) == 4:
+                    leading = line[: len(line) - len(line.lstrip())]
+                    rewritten_lines.append(
+                        f"{leading}{parts[0]} {parts[1]} {parts[2]} POWER {parts[3]}"
+                    )
+                    changed = True
+                    continue
+
+            rewritten_lines.append(line)
+
+        if converted_reservoirs and not reservoir_inserted:
+            rewritten_lines.extend(
+                ["[RESERVOIRS]", "; Converted from simplified [TANKS] entries."]
+            )
+            rewritten_lines.extend(converted_reservoirs)
+            changed = True
+
+        if not changed:
+            return text
+
+        if text.endswith(("\n", "\r")):
+            return "\n".join(rewritten_lines) + "\n"
+        return "\n".join(rewritten_lines)
+
+    def _load_from_text(
+        text: str,
+    ) -> tuple[wntr.network.WaterNetworkModel, Path | None]:
+        normalized = _rewrite_inp_if_needed(text)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".inp", delete=False, encoding="utf-8"
+        )
+        tmp.write(normalized)
+        tmp.flush()
+        tmp_path = Path(tmp.name)
+        tmp.close()
+        return wntr.network.WaterNetworkModel(str(tmp_path)), tmp_path
+
     try:
         return wntr.network.WaterNetworkModel(str(inp_path)), None
     except UnicodeDecodeError:
         raw = inp_path.read_bytes()
         text = raw.decode("latin-1")
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".inp", delete=False, encoding="utf-8"
-        )
-        tmp.write(text)
-        tmp.flush()
-        tmp_path = Path(tmp.name)
-        tmp.close()
-    return wntr.network.WaterNetworkModel(str(tmp_path)), tmp_path
+        return _load_from_text(text)
+    except ValueError as exc:
+        if 'inpfile_units = "%s" is not a valid EPANET unit code' not in str(exc):
+            raise
+        text = inp_path.read_text(encoding="utf-8", errors="replace")
+        return _load_from_text(text)
 
 
 def _run_single_experiment_worker(
@@ -428,15 +517,15 @@ def _build_progress_line(
         best_fragment = "--"
     return (
         f"run {run_id:02d} [{bar}] {pct:6.2f}% "
-        f"{done_generations:3d}/{total_generations:3d} {eta_fragment} best={best_fragment}"
+        f"{done_generations:3d}/{total_generations:3d} {eta_fragment} best={best_fragment} cost={best_cost}"
     )
 
 
 def main() -> None:
-    runs = 12
-    instance_name = "TLN.inp"
-    # instance_name = "NYT.inp"
-    # instance_name = "GOY.inp"
+    runs = 15
+    # instance_name = "TLN.inp"
+    # instance_name = "BLA.inp"
+    instance_name = "GOY.inp"
     # instance_name = "HAN.inp"
     # instance_name = "BIN.inp"
 
@@ -450,8 +539,8 @@ def main() -> None:
     # crossover_rate=0.9
 
     config = DifferentialEvolutionConfig(
-        generations=200,
-        population_size=40,
+        generations=500,
+        population_size=50,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
     )
