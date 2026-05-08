@@ -131,6 +131,7 @@ def _save_resume_state(path: Path, state: DifferentialEvolutionResumeState) -> N
         best_fitness=np.array(state.best_fitness, dtype=float),
         completed_generations=np.array(state.completed_generations, dtype=int),
         rng_state=np.array(state.rng_state, dtype=object),
+        elapsed_seconds=np.array(state.elapsed_seconds, dtype=float),
     )
 
 
@@ -144,6 +145,9 @@ def _load_resume_state(
         best_fitness = float(data["best_fitness"])
         completed_generations = int(data["completed_generations"])
         rng_state = data["rng_state"].item()
+        elapsed_seconds = (
+            float(data["elapsed_seconds"]) if "elapsed_seconds" in data.files else 0.0
+        )
 
     expected_population_shape = (config.population_size, dimension)
     if population.shape != expected_population_shape:
@@ -174,6 +178,7 @@ def _load_resume_state(
         best_fitness=best_fitness,
         completed_generations=completed_generations,
         rng_state=rng_state,
+        elapsed_seconds=elapsed_seconds,
     )
 
 
@@ -248,6 +253,12 @@ def _final_best_cost_for_completed_run(
     if history_path.exists():
         return _last_best_cost_from_history(history_path)
     return float(resume_state.best_fitness)
+
+
+def _elapsed_seconds_for_completed_run(
+    resume_state: DifferentialEvolutionResumeState,
+) -> float:
+    return max(0.0, float(resume_state.elapsed_seconds))
 
 
 def _snap_to_allowed_diameters(
@@ -452,10 +463,10 @@ def _run_single_experiment_worker(
     def _mark_progress_started_local(run_id: int) -> None:
         with progress_lock_proxy:
             state = progress_state_proxy[run_id]
-            state["start_time"] = time.monotonic()
+            state["start_time"] = session_started_at
             state["finished"] = False
             state["finished_elapsed_seconds"] = None
-            state["done_generations"] = 0
+            state["elapsed_offset_seconds"] = prior_elapsed_seconds
 
     def _update_progress_local(
         run_id: int, done_generations: int, best_cost: float
@@ -465,8 +476,6 @@ def _run_single_experiment_worker(
             state["done_generations"] = int(done_generations)
             state["best_cost"] = float(best_cost)
 
-    # Start
-    _mark_progress_started_local(run_id)
     wn, temp_inp = _load_wntr_model_robust(Path(instance_path))
     # Create a temporary directory for EPANET output files to avoid collisions
     tmpdir = tempfile.TemporaryDirectory()
@@ -478,7 +487,7 @@ def _run_single_experiment_worker(
 
     # checkpointing setup: write partial results every N generations
     results_dir = Path(results_dir_path)
-    checkpoint_interval = 30
+    checkpoint_interval = 100
     last_saved_generation = -1
     resume_state = (
         DifferentialEvolutionResumeState(
@@ -488,10 +497,16 @@ def _run_single_experiment_worker(
             best_fitness=float(resume_payload["best_fitness"]),
             completed_generations=int(resume_payload["completed_generations"]),
             rng_state=resume_payload["rng_state"],
+            elapsed_seconds=float(resume_payload["elapsed_seconds"]),
         )
         if resume_payload is not None
         else None
     )
+    prior_elapsed_seconds = (
+        float(resume_state.elapsed_seconds) if resume_state is not None else 0.0
+    )
+    session_started_at = time.monotonic()
+    _mark_progress_started_local(run_id)
     if resume_state is not None:
         last_saved_generation = resume_state.completed_generations - 1
 
@@ -504,6 +519,9 @@ def _run_single_experiment_worker(
     ) -> None:
         nonlocal last_saved_generation
         try:
+            total_elapsed_seconds = prior_elapsed_seconds + (
+                time.monotonic() - session_started_at
+            )
             # select new history entries
             new_entries = [
                 h
@@ -530,6 +548,7 @@ def _run_single_experiment_worker(
                     line = ",".join(str(float(value)) for value in vec)
                     fh.write(line + "\n")
 
+            optimizer_state.elapsed_seconds = total_elapsed_seconds
             _save_resume_state(_run_state_path(results_dir, run_id), optimizer_state)
 
             # overwrite aggregate summary (safe to replace)
@@ -685,6 +704,8 @@ def _run_single_experiment_worker(
             "run_summary": run_summary,
             "history": result.history,
             "best_vectors": result.best_vectors,
+            "run_elapsed_seconds": prior_elapsed_seconds
+            + (time.monotonic() - session_started_at),
         }
     finally:
         if temp_inp and temp_inp.exists():
@@ -754,12 +775,12 @@ def _build_progress_line(
 
 def main() -> None:
     cli_results_dir = _parse_results_dir_argument(sys.argv)
-    runs = 3
+    runs = 12
     # instance_name = "TLN.inp"
     # instance_name = "BLA.inp"
     # instance_name = "GOY.inp"
-    instance_name = "HAN.inp"
-    # instance_name = "BIN.inp"
+    # instance_name = "HAN.inp"
+    instance_name = "BIN.inp"
 
     mutation_factor = 0.5
     crossover_rate = 0.8
@@ -771,8 +792,8 @@ def main() -> None:
     # crossover_rate = 0.9
 
     config = DifferentialEvolutionConfig(
-        generations=400,
-        population_size=40,
+        generations=10000,
+        population_size=50,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
     )
@@ -896,6 +917,9 @@ def main() -> None:
                 results_dir, run_id, resume_state
             )
             best_costs.append(best_cost)
+            run_durations_seconds.append(
+                _elapsed_seconds_for_completed_run(resume_state)
+            )
             run_summaries.append(
                 _build_run_summary(run_id, best_cost, published_best_cost)
             )
@@ -911,6 +935,7 @@ def main() -> None:
                     "best_fitness": resume_state.best_fitness,
                     "completed_generations": resume_state.completed_generations,
                     "rng_state": resume_state.rng_state,
+                    "elapsed_seconds": resume_state.elapsed_seconds,
                 },
             )
         )
@@ -922,11 +947,13 @@ def main() -> None:
     for run_id in range(1, runs + 1):
         existing_completed_generations = 0
         existing_best_cost = None
+        existing_elapsed_seconds = 0.0
         state_path = _run_state_path(results_dir, run_id)
         if state_path.exists():
             state = _load_resume_state(state_path, config, bounds.shape[0])
             existing_completed_generations = state.completed_generations
             existing_best_cost = state.best_fitness
+            existing_elapsed_seconds = state.elapsed_seconds
         progress_state[run_id] = manager.dict(
             {
                 "done_generations": existing_completed_generations,
@@ -934,10 +961,11 @@ def main() -> None:
                 "finished": existing_completed_generations >= config.generations,
                 "best_cost": existing_best_cost,
                 "finished_elapsed_seconds": (
-                    0.0
+                    existing_elapsed_seconds
                     if existing_completed_generations >= config.generations
                     else None
                 ),
+                "elapsed_offset_seconds": existing_elapsed_seconds,
             }
         )
 
@@ -945,14 +973,21 @@ def main() -> None:
     stop_progress_render = threading.Event()
     rendered_line_count = 0
 
-    def _mark_progress_done_local(run_id: int, final_best_cost: float) -> None:
+    def _mark_progress_done_local(
+        run_id: int, final_best_cost: float, final_elapsed_seconds: float | None = None
+    ) -> None:
         with progress_lock:
             state = progress_state[run_id]
             start_time = state.get("start_time")
+            elapsed_offset_seconds = float(state.get("elapsed_offset_seconds", 0.0))
             if start_time is None:
                 start_time = time.monotonic()
                 state["start_time"] = start_time
-            finished_elapsed_seconds = time.monotonic() - float(start_time)
+            finished_elapsed_seconds = (
+                float(final_elapsed_seconds)
+                if final_elapsed_seconds is not None
+                else elapsed_offset_seconds + (time.monotonic() - float(start_time))
+            )
             state["done_generations"] = config.generations
             state["best_cost"] = float(final_best_cost)
             state["finished"] = True
@@ -974,10 +1009,15 @@ def main() -> None:
             start_time = state.get("start_time")
             finished = bool(state.get("finished", False))
             finished_elapsed_seconds = state.get("finished_elapsed_seconds")
+            elapsed_offset_seconds = float(state.get("elapsed_offset_seconds", 0.0))
             elapsed = (
                 finished_elapsed_seconds
                 if finished and finished_elapsed_seconds is not None
-                else (now - start_time if start_time is not None else 0.0)
+                else (
+                    elapsed_offset_seconds + (now - start_time)
+                    if start_time is not None
+                    else elapsed_offset_seconds
+                )
             )
             lines.append(
                 _build_progress_line(
@@ -1056,16 +1096,12 @@ def main() -> None:
                 run_summary = run_payload["run_summary"]
                 history = run_payload["history"]
                 best_vectors = run_payload["best_vectors"]
+                run_elapsed_seconds = float(run_payload["run_elapsed_seconds"])
 
                 best_costs.append(best_cost)
                 run_summaries.append(run_summary)  # type: ignore[arg-type]
-                _mark_progress_done_local(run_id, best_cost)
-                with progress_lock:
-                    finished_elapsed_seconds = progress_state[run_id].get(
-                        "finished_elapsed_seconds"
-                    )
-                if finished_elapsed_seconds is not None:
-                    run_durations_seconds.append(float(finished_elapsed_seconds))
+                _mark_progress_done_local(run_id, best_cost, run_elapsed_seconds)
+                run_durations_seconds.append(run_elapsed_seconds)
 
                 # Append any missing history rows to the per-run history CSV (do not delete previous data)
                 hist_path = _history_path(results_dir, run_id)

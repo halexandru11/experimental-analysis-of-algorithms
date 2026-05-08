@@ -29,6 +29,7 @@ class DifferentialEvolutionResumeState:
     best_fitness: float
     completed_generations: int
     rng_state: dict
+    elapsed_seconds: float = 0.0
 
 
 def run_differential_evolution(
