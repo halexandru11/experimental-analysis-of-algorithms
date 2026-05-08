@@ -29,34 +29,6 @@
     "confidence": "High",
     "notes": "Best value 419000 confirmed in Siew & Tanyimboh (2012), Section 5.1/Table 1; Exeter link retained for benchmark data/spec context."
   },
-  "BLA.inp": {
-    "published_best_universal_score": 577066,
-    "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",
-    "published_best_source": "Sherali, Loganathan & Subramanian / later benchmark studies reporting Blacksburg optimal design objective = 577066.",
-    "published_best_source_links": [
-      "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/"
-    ],
-    "source_reliability": "High",
-    "benchmark_name": "Blacksburg Network",
-    "objective_type": "minimize total pipe cost",
-    "diameter_set": [
-      {"diameter_m": 0.1524, "unit_cost_per_m": 8.0},
-      {"diameter_m": 0.2032, "unit_cost_per_m": 11.0},
-      {"diameter_m": 0.2540, "unit_cost_per_m": 14.0},
-      {"diameter_m": 0.3048, "unit_cost_per_m": 18.0},
-      {"diameter_m": 0.3556, "unit_cost_per_m": 23.0},
-      {"diameter_m": 0.4064, "unit_cost_per_m": 29.0},
-      {"diameter_m": 0.4572, "unit_cost_per_m": 35.0},
-      {"diameter_m": 0.5080, "unit_cost_per_m": 43.0}
-    ],
-    "cost_definition": "sum(unit_cost(d_i) * pipe_length_i)",
-    "constraints": "minimum pressure head constraints at all demand nodes under peak demand and fire flow conditions",
-    "simulation_assumptions": "Hazen-Williams, C=120 for all links, EPANET-style hydraulic feasibility",
-    "units": "USD for cost, meters for lengths/heads",
-    "replicable_apples_to_apples": true,
-    "confidence": "Medium",
-    "notes": "Benchmark represents a real subdivision expansion in Blacksburg, Virginia. Literature consistently reports objective 577066 under standard Hazen-Williams C=120 assumptions. Much more reproducible than NYT."
-  },
   "GOY.inp": {
     "published_best_universal_score": 177010359,
     "source": "https://www.exeter.ac.uk/research/centres/cws/resources/benchmarks/pareto/",

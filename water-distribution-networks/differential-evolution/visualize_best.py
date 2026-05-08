@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.patches import Polygon
 
 
 def load_best_vector(path: Path) -> np.ndarray:
@@ -31,6 +32,24 @@ def snap_to_allowed(candidate: np.ndarray, allowed: np.ndarray) -> np.ndarray:
     distances = np.abs(candidate[:, None] - allowed[None, :])
     idx = np.argmin(distances, axis=1)
     return allowed[idx]
+
+
+def _draw_source_symbol(ax: plt.Axes, x: float, y: float, scale: float) -> None:
+    triangle = [
+        (x, y + scale),
+        (x - scale * 0.85, y - scale * 0.6),
+        (x + scale * 0.85, y - scale * 0.6),
+    ]
+    ax.add_patch(
+        Polygon(
+            triangle,
+            closed=True,
+            facecolor="#d62728",
+            edgecolor="#d62728",
+            linewidth=1.0,
+            zorder=3,
+        )
+    )
 
 
 def main() -> None:
@@ -90,6 +109,19 @@ def main() -> None:
 
     parsed = InpFileParser(inp_path).parse()
     pipe_entries = parsed.pipes.entries if parsed.pipes else []
+    pump_entries = parsed.pumps.entries if parsed.pumps else []
+    tank_ids = {entry.id for entry in parsed.tanks.entries} if parsed.tanks else set()
+    reservoir_ids = (
+        {entry.id for entry in parsed.reservoirs.entries} if parsed.reservoirs else set()
+    )
+    pipe_nodes = {p.node1 for p in pipe_entries} | {p.node2 for p in pipe_entries}
+    inferred_source_ids = {
+        node
+        for pump in pump_entries
+        for node in (pump.node1, pump.node2)
+        if node not in pipe_nodes
+    }
+    source_ids = tank_ids | reservoir_ids | inferred_source_ids
 
     # build positions mapping from COORDINATES section if present
     positions = {}
@@ -154,14 +186,53 @@ def main() -> None:
         fig, ax = plt.subplots(figsize=(12, 8))
         lc = LineCollection(segments, colors=colors, linewidths=widths, zorder=1)
         ax.add_collection(lc)
+        pump_segments = []
+        pump_labels = []
+        for pump in pump_entries:
+            if pump.node1 not in local_positions or pump.node2 not in local_positions:
+                continue
+            x1, y1 = local_positions[pump.node1]
+            x2, y2 = local_positions[pump.node2]
+            pump_segments.append([(x1, y1), (x2, y2)])
+            pump_labels.append(((x1 + x2) / 2.0, (y1 + y2) / 2.0))
+        if pump_segments:
+            ax.add_collection(
+                LineCollection(
+                    pump_segments,
+                    colors="black",
+                    linewidths=1.6,
+                    zorder=2,
+                )
+            )
 
         # draw nodes
         node_x = []
         node_y = []
         for n, (x, y) in local_positions.items():
+            if n in source_ids:
+                continue
             node_x.append(x)
             node_y.append(y)
         ax.scatter(node_x, node_y, s=10, c="k", zorder=2)
+        if local_positions:
+            xs = [xy[0] for xy in local_positions.values()]
+            ys = [xy[1] for xy in local_positions.values()]
+            symbol_scale = max(max(xs) - min(xs), max(ys) - min(ys)) * 0.006
+            for source_id in source_ids:
+                if source_id not in local_positions:
+                    continue
+                _draw_source_symbol(ax, *local_positions[source_id], scale=symbol_scale)
+        for x, y in pump_labels:
+            ax.text(
+                x,
+                y,
+                "P",
+                ha="center",
+                va="center",
+                fontsize=10,
+                bbox=dict(facecolor="white", edgecolor="none", pad=0.2),
+                zorder=4,
+            )
 
         ax.set_aspect("equal", adjustable="datalim")
         ax.axis("off")

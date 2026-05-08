@@ -97,6 +97,10 @@ def _load_wntr_model_robust(
         current_section: str | None = None
         converted_reservoirs: list[str] = []
         reservoir_inserted = False
+        option_pattern_id: str | None = None
+        pattern_ids: set[str] = set()
+        patterns_section_index: int | None = None
+        node_ids: set[str] = set()
         changed = False
 
         for line in text.splitlines():
@@ -119,6 +123,8 @@ def _load_wntr_model_robust(
                 current_section = upper
                 if current_section == "[RESERVOIRS]":
                     reservoir_inserted = True
+                if current_section == "[PATTERNS]":
+                    patterns_section_index = len(rewritten_lines)
 
             if current_section == "[OPTIONS]" and upper.startswith("UNITS"):
                 parts = stripped.split()
@@ -128,12 +134,37 @@ def _load_wntr_model_robust(
                     changed = True
                     continue
 
+            if current_section == "[OPTIONS]" and upper.startswith("PATTERN"):
+                parts = stripped.split()
+                if len(parts) >= 2:
+                    option_pattern_id = parts[1]
+
+            if (
+                current_section in {"[JUNCTIONS]", "[RESERVOIRS]"}
+                and stripped
+                and not stripped.startswith(";")
+            ):
+                parts = stripped.split()
+                if parts:
+                    node_ids.add(parts[0])
+
+            if (
+                current_section == "[PATTERNS]"
+                and stripped
+                and not stripped.startswith(";")
+            ):
+                parts = stripped.split()
+                if parts:
+                    pattern_ids.add(parts[0])
+
             if (
                 current_section == "[TANKS]"
                 and stripped
                 and not stripped.startswith(";")
             ):
                 parts = stripped.split()
+                if parts:
+                    node_ids.add(parts[0])
                 if len(parts) == 2:
                     leading = line[: len(line) - len(line.lstrip())]
                     converted_reservoirs.append(f"{leading}{parts[0]} {parts[1]}")
@@ -154,6 +185,17 @@ def _load_wntr_model_robust(
                     changed = True
                     continue
 
+            if (
+                current_section == "[COORDINATES]"
+                and stripped
+                and not (upper.startswith("[") and upper.endswith("]"))
+                and not stripped.startswith(";")
+            ):
+                parts = stripped.split()
+                if parts and parts[0] not in node_ids:
+                    changed = True
+                    continue
+
             rewritten_lines.append(line)
 
         if converted_reservoirs and not reservoir_inserted:
@@ -161,6 +203,21 @@ def _load_wntr_model_robust(
                 ["[RESERVOIRS]", "; Converted from simplified [TANKS] entries."]
             )
             rewritten_lines.extend(converted_reservoirs)
+            changed = True
+
+        if option_pattern_id and option_pattern_id not in pattern_ids:
+            insert_at = (
+                patterns_section_index + 1
+                if patterns_section_index is not None
+                else len(rewritten_lines)
+            )
+            injected_lines = [
+                f"{option_pattern_id} 1.0",
+                "; Injected default flat pattern for wntr compatibility.",
+            ]
+            if patterns_section_index is None:
+                injected_lines.insert(0, "[PATTERNS]")
+            rewritten_lines[insert_at:insert_at] = injected_lines
             changed = True
 
         if not changed:
@@ -192,6 +249,9 @@ def _load_wntr_model_robust(
     except ValueError as exc:
         if 'inpfile_units = "%s" is not a valid EPANET unit code' not in str(exc):
             raise
+        text = inp_path.read_text(encoding="utf-8", errors="replace")
+        return _load_from_text(text)
+    except wntr.epanet.exceptions.EpanetException:
         text = inp_path.read_text(encoding="utf-8", errors="replace")
         return _load_from_text(text)
 
@@ -522,7 +582,7 @@ def _build_progress_line(
 
 
 def main() -> None:
-    runs = 15
+    runs = 24
     # instance_name = "TLN.inp"
     # instance_name = "BLA.inp"
     instance_name = "GOY.inp"
@@ -539,7 +599,7 @@ def main() -> None:
     # crossover_rate=0.9
 
     config = DifferentialEvolutionConfig(
-        generations=500,
+        generations=300,
         population_size=50,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
