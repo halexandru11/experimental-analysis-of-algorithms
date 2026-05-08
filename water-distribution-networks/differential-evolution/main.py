@@ -19,7 +19,11 @@ import uuid
 import numpy as np
 import wntr
 
-from de_algorithm import DifferentialEvolutionConfig, run_differential_evolution
+from de_algorithm import (
+    DifferentialEvolutionConfig,
+    DifferentialEvolutionResumeState,
+    run_differential_evolution,
+)
 from inp_parser import InpFileParser
 from plot_results import generate_plots
 
@@ -79,6 +83,171 @@ def _load_reference_entry(reference_path: Path, instance_name: str) -> dict:
             f"No published reference entry found for {instance_name} in {reference_path.name}"
         )
     return all_scores[instance_name]
+
+
+def _parse_results_dir_argument(argv: list[str]) -> Path | None:
+    if len(argv) > 2:
+        raise SystemExit(f"Usage: {Path(argv[0]).name} [results_dir]")
+    if len(argv) == 2:
+        return Path(argv[1]).expanduser()
+    return None
+
+
+def _run_state_path(results_dir: Path, run_id: int) -> Path:
+    return results_dir / f"run_{run_id:02d}_state.npz"
+
+
+def _best_vectors_path(results_dir: Path, run_id: int) -> Path:
+    return results_dir / f"run_{run_id:02d}_best_vectors.csv"
+
+
+def _history_path(results_dir: Path, run_id: int) -> Path:
+    return results_dir / f"run_{run_id:02d}_history.csv"
+
+
+def _build_run_summary(
+    run_id: int, best_cost: float, published_best_cost: float
+) -> dict[str, float]:
+    distance_from_published_best_pct = (
+        max(0.0, ((best_cost / published_best_cost) - 1.0) * 100.0)
+        if published_best_cost > 0
+        else 0.0
+    )
+    return {
+        "run_id": float(run_id),
+        "seed": float(10_000 + run_id),
+        "best_cost": float(best_cost),
+        "published_best_cost": float(published_best_cost),
+        "distance_from_published_best_pct": distance_from_published_best_pct,
+    }
+
+
+def _save_resume_state(path: Path, state: DifferentialEvolutionResumeState) -> None:
+    np.savez(
+        path,
+        population=state.population,
+        fitness=state.fitness,
+        best_vector=state.best_vector,
+        best_fitness=np.array(state.best_fitness, dtype=float),
+        completed_generations=np.array(state.completed_generations, dtype=int),
+        rng_state=np.array(state.rng_state, dtype=object),
+    )
+
+
+def _load_resume_state(
+    state_path: Path, config: DifferentialEvolutionConfig, dimension: int
+) -> DifferentialEvolutionResumeState:
+    with np.load(state_path, allow_pickle=True) as data:
+        population = np.array(data["population"], dtype=float)
+        fitness = np.array(data["fitness"], dtype=float)
+        best_vector = np.array(data["best_vector"], dtype=float)
+        best_fitness = float(data["best_fitness"])
+        completed_generations = int(data["completed_generations"])
+        rng_state = data["rng_state"].item()
+
+    expected_population_shape = (config.population_size, dimension)
+    if population.shape != expected_population_shape:
+        raise ValueError(
+            f"{state_path.name} has population shape {population.shape}, expected "
+            f"{expected_population_shape}."
+        )
+    if fitness.shape != (config.population_size,):
+        raise ValueError(
+            f"{state_path.name} has fitness shape {fitness.shape}, expected "
+            f"({config.population_size},)."
+        )
+    if best_vector.shape != (dimension,):
+        raise ValueError(
+            f"{state_path.name} has best_vector shape {best_vector.shape}, expected "
+            f"({dimension},)."
+        )
+    if not 0 <= completed_generations <= config.generations:
+        raise ValueError(
+            f"{state_path.name} has completed_generations={completed_generations}, "
+            f"expected a value between 0 and {config.generations}."
+        )
+
+    return DifferentialEvolutionResumeState(
+        population=population,
+        fitness=fitness,
+        best_vector=best_vector,
+        best_fitness=best_fitness,
+        completed_generations=completed_generations,
+        rng_state=rng_state,
+    )
+
+
+def _load_experiment_config(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_experiment_compatibility(
+    existing_meta: dict, expected_meta: dict
+) -> None:
+    comparisons = [
+        ("instance", existing_meta.get("instance"), expected_meta["instance"]),
+        ("dimensions", existing_meta.get("dimensions"), expected_meta["dimensions"]),
+        ("runs", existing_meta.get("runs"), expected_meta["runs"]),
+    ]
+    mismatches = [
+        f"{key}: existing={actual!r}, expected={expected!r}"
+        for key, actual, expected in comparisons
+        if actual != expected
+    ]
+
+    existing_de_config = existing_meta.get("de_config") or {}
+    expected_de_config = expected_meta["de_config"]
+    for key in ("population_size", "mutation_factor", "crossover_rate"):
+        actual = existing_de_config.get(key)
+        expected = expected_de_config[key]
+        if actual != expected:
+            mismatches.append(
+                f"de_config.{key}: existing={actual!r}, expected={expected!r}"
+            )
+
+    existing_generations = existing_de_config.get("generations")
+    expected_generations = expected_de_config["generations"]
+    if existing_generations is None:
+        mismatches.append(
+            f"de_config.generations: existing={existing_generations!r}, expected<={expected_generations!r}"
+        )
+    elif int(existing_generations) > int(expected_generations):
+        mismatches.append(
+            f"de_config.generations: existing={existing_generations!r}, expected>={expected_generations!r}"
+        )
+
+    if mismatches:
+        mismatch_text = "; ".join(mismatches)
+        raise ValueError(
+            "Results directory is not compatible with the current experiment settings: "
+            f"{mismatch_text}"
+        )
+
+
+def _last_best_cost_from_history(history_path: Path) -> float:
+    if not history_path.exists():
+        raise ValueError(f"Missing history file for completed run: {history_path}")
+    last_cost: float | None = None
+    with history_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames or []
+        best_key = "best_cost" if "best_cost" in fieldnames else "best_fitness"
+        for row in reader:
+            last_cost = float(row[best_key])
+    if last_cost is None:
+        raise ValueError(f"No history rows found in {history_path}")
+    return last_cost
+
+
+def _final_best_cost_for_completed_run(
+    results_dir: Path,
+    run_id: int,
+    resume_state: DifferentialEvolutionResumeState,
+) -> float:
+    history_path = _history_path(results_dir, run_id)
+    if history_path.exists():
+        return _last_best_cost_from_history(history_path)
+    return float(resume_state.best_fitness)
 
 
 def _snap_to_allowed_diameters(
@@ -271,6 +440,7 @@ def _run_single_experiment_worker(
     progress_state_proxy,
     progress_lock_proxy,
     results_dir_path: str,
+    resume_payload: dict | None,
 ) -> dict:
     """Worker function executed in a separate process.
 
@@ -308,14 +478,29 @@ def _run_single_experiment_worker(
 
     # checkpointing setup: write partial results every N generations
     results_dir = Path(results_dir_path)
-    checkpoint_interval = 10
+    checkpoint_interval = 30
     last_saved_generation = -1
+    resume_state = (
+        DifferentialEvolutionResumeState(
+            population=np.array(resume_payload["population"], dtype=float),
+            fitness=np.array(resume_payload["fitness"], dtype=float),
+            best_vector=np.array(resume_payload["best_vector"], dtype=float),
+            best_fitness=float(resume_payload["best_fitness"]),
+            completed_generations=int(resume_payload["completed_generations"]),
+            rng_state=resume_payload["rng_state"],
+        )
+        if resume_payload is not None
+        else None
+    )
+    if resume_state is not None:
+        last_saved_generation = resume_state.completed_generations - 1
 
     def _checkpoint_callback(
         gen: int,
         history_snapshot: list[dict[str, float]],
         best_vectors_snapshot: list[np.ndarray],
         best_fitness: float,
+        optimizer_state: DifferentialEvolutionResumeState,
     ) -> None:
         nonlocal last_saved_generation
         try:
@@ -339,11 +524,13 @@ def _run_single_experiment_worker(
 
             # The optimizer clears best_vectors after each checkpoint, so each
             # snapshot already contains only the unsaved window for this run.
-            best_vecs_path = results_dir / f"run_{run_id:02d}_best_vectors.csv"
+            best_vecs_path = _best_vectors_path(results_dir, run_id)
             with best_vecs_path.open("a", encoding="utf-8") as fh:
                 for vec in best_vectors_snapshot:
                     line = ",".join(str(float(value)) for value in vec)
                     fh.write(line + "\n")
+
+            _save_resume_state(_run_state_path(results_dir, run_id), optimizer_state)
 
             # overwrite aggregate summary (safe to replace)
             agg_path = results_dir / "aggregate_summary.json"
@@ -487,21 +674,11 @@ def _run_single_experiment_worker(
             progress_callback=lambda generation, best: _update_progress_local(
                 run_id, generation, best
             ),
+            resume_state=resume_state,
         )
 
         best_cost = result.best_fitness
-        distance_from_published_best_pct = (
-            max(0.0, ((best_cost / published_best_cost) - 1.0) * 100.0)
-            if published_best_cost > 0
-            else 0.0
-        )
-        run_summary = {
-            "run_id": float(run_id),
-            "seed": float(seed),
-            "best_cost": best_cost,
-            "published_best_cost": published_best_cost,
-            "distance_from_published_best_pct": distance_from_published_best_pct,
-        }
+        run_summary = _build_run_summary(run_id, best_cost, published_best_cost)
         return {
             "run_id": run_id,
             "best_cost": best_cost,
@@ -515,11 +692,10 @@ def _run_single_experiment_worker(
                 temp_inp.unlink()
             except OSError:
                 pass
-    # Clean up temporary directory used for epanet files
-    try:
-        tmpdir.cleanup()
-    except Exception:
-        pass
+        try:
+            tmpdir.cleanup()
+        except Exception:
+            pass
 
 
 def _min_head_requirement(reference_entry: dict) -> float:
@@ -577,11 +753,12 @@ def _build_progress_line(
 
 
 def main() -> None:
-    runs = 1
-    instance_name = "TLN.inp"
+    cli_results_dir = _parse_results_dir_argument(sys.argv)
+    runs = 3
+    # instance_name = "TLN.inp"
     # instance_name = "BLA.inp"
     # instance_name = "GOY.inp"
-    # instance_name = "HAN.inp"
+    instance_name = "HAN.inp"
     # instance_name = "BIN.inp"
 
     mutation_factor = 0.5
@@ -594,8 +771,8 @@ def main() -> None:
     # crossover_rate = 0.9
 
     config = DifferentialEvolutionConfig(
-        generations=40,
-        population_size=50,
+        generations=400,
+        population_size=40,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
     )
@@ -645,13 +822,20 @@ def main() -> None:
     # Note: per-run work is executed in separate processes using
     # _run_single_experiment_worker defined above.
 
-    instance_hash = hashlib.md5(uuid.uuid4().bytes).hexdigest()[:6]
-    instance_run_id = f"{config.generations}-{config.population_size}-{int(config.mutation_factor * 100)}-{int(config.crossover_rate * 100)}_{instance_hash}"
-    results_dir = (
-        Path(__file__).resolve().parent
-        / "results"
-        / f"{instance_path.stem}-{instance_run_id}"
-    )
+    if cli_results_dir is None:
+        instance_hash = hashlib.md5(uuid.uuid4().bytes).hexdigest()[:6]
+        instance_run_id = (
+            f"{config.generations}-{config.population_size}-"
+            f"{int(config.mutation_factor * 100)}-{int(config.crossover_rate * 100)}"
+            f"_{instance_hash}"
+        )
+        results_dir = (
+            Path(__file__).resolve().parent
+            / "results"
+            / f"{instance_path.stem}-{instance_run_id}"
+        )
+    else:
+        results_dir = cli_results_dir
     results_dir.mkdir(parents=True, exist_ok=True)
 
     experiment_meta = {
@@ -674,26 +858,86 @@ def main() -> None:
             "crossover_rate": config.crossover_rate,
         },
     }
-    (results_dir / "experiment_config.json").write_text(
-        json.dumps(experiment_meta, indent=2), encoding="utf-8"
-    )
+    experiment_config_path = results_dir / "experiment_config.json"
+    if experiment_config_path.exists():
+        _validate_experiment_compatibility(
+            _load_experiment_config(experiment_config_path),
+            experiment_meta,
+        )
+        experiment_config_path.write_text(
+            json.dumps(experiment_meta, indent=2), encoding="utf-8"
+        )
+    else:
+        has_existing_outputs = any(results_dir.glob("run_*_history.csv")) or any(
+            results_dir.glob("run_*_state.npz")
+        )
+        if has_existing_outputs:
+            raise ValueError(
+                f"Cannot resume from {results_dir} without experiment_config.json."
+            )
+        experiment_config_path.write_text(
+            json.dumps(experiment_meta, indent=2), encoding="utf-8"
+        )
 
     best_costs: list[float] = []
     run_durations_seconds: list[float] = []
     run_summaries: list[dict[str, float]] = []
+    pending_runs: list[tuple[int, dict | None]] = []
+
+    for run_id in range(1, runs + 1):
+        state_path = _run_state_path(results_dir, run_id)
+        if not state_path.exists():
+            pending_runs.append((run_id, None))
+            continue
+
+        resume_state = _load_resume_state(state_path, config, bounds.shape[0])
+        if resume_state.completed_generations >= config.generations:
+            best_cost = _final_best_cost_for_completed_run(
+                results_dir, run_id, resume_state
+            )
+            best_costs.append(best_cost)
+            run_summaries.append(
+                _build_run_summary(run_id, best_cost, published_best_cost)
+            )
+            continue
+
+        pending_runs.append(
+            (
+                run_id,
+                {
+                    "population": resume_state.population,
+                    "fitness": resume_state.fitness,
+                    "best_vector": resume_state.best_vector,
+                    "best_fitness": resume_state.best_fitness,
+                    "completed_generations": resume_state.completed_generations,
+                    "rng_state": resume_state.rng_state,
+                },
+            )
+        )
 
     # Use multiprocessing Manager to share progress state and a lock between processes
     manager = multiprocessing.Manager()
     progress_lock = manager.RLock()
     progress_state = manager.dict()
     for run_id in range(1, runs + 1):
+        existing_completed_generations = 0
+        existing_best_cost = None
+        state_path = _run_state_path(results_dir, run_id)
+        if state_path.exists():
+            state = _load_resume_state(state_path, config, bounds.shape[0])
+            existing_completed_generations = state.completed_generations
+            existing_best_cost = state.best_fitness
         progress_state[run_id] = manager.dict(
             {
-                "done_generations": 0,
+                "done_generations": existing_completed_generations,
                 "start_time": None,
-                "finished": False,
-                "best_cost": None,
-                "finished_elapsed_seconds": None,
+                "finished": existing_completed_generations >= config.generations,
+                "best_cost": existing_best_cost,
+                "finished_elapsed_seconds": (
+                    0.0
+                    if existing_completed_generations >= config.generations
+                    else None
+                ),
             }
         )
 
@@ -801,8 +1045,9 @@ def main() -> None:
                     progress_state,
                     progress_lock,
                     str(results_dir),
+                    resume_payload,
                 ): run_id
-                for run_id in range(1, runs + 1)
+                for run_id, resume_payload in pending_runs
             }
             for future in as_completed(futures):
                 run_payload = future.result()
@@ -823,7 +1068,7 @@ def main() -> None:
                     run_durations_seconds.append(float(finished_elapsed_seconds))
 
                 # Append any missing history rows to the per-run history CSV (do not delete previous data)
-                hist_path = results_dir / f"run_{run_id:02d}_history.csv"
+                hist_path = _history_path(results_dir, run_id)
                 write_header = not hist_path.exists()
                 # determine last saved generation if file exists
                 last_saved = -1
@@ -857,7 +1102,7 @@ def main() -> None:
 
                 # After checkpoint clears, result.best_vectors only contains the
                 # final unsaved remainder, so append that remainder directly.
-                best_vecs_path = results_dir / f"run_{run_id:02d}_best_vectors.csv"
+                best_vecs_path = _best_vectors_path(results_dir, run_id)
                 if best_vectors:
                     with best_vecs_path.open("a", encoding="utf-8") as fh:
                         for vec in best_vectors:
@@ -870,33 +1115,50 @@ def main() -> None:
             if rendered_line_count > 0:
                 print()
 
+    if best_costs:
+        best_run_distance = max(
+            0.0, ((min(best_costs) / published_best_cost) - 1.0) * 100.0
+        )
+        median_run_distance = max(
+            0.0,
+            ((statistics.median(best_costs) / published_best_cost) - 1.0) * 100.0,
+        )
+    else:
+        best_run_distance = 0.0
+        median_run_distance = 0.0
+
     aggregate = {
         "instance": instance_path.name,
         "experiment_config": experiment_meta["de_config"],
         "runs": runs,
         "published_best_cost": published_best_cost,
-        "best_cost_min": min(best_costs),
-        "best_cost_max": max(best_costs),
-        "best_cost_mean": statistics.mean(best_costs),
-        "best_cost_median": statistics.median(best_costs),
+        "best_cost_min": min(best_costs) if best_costs else 0.0,
+        "best_cost_max": max(best_costs) if best_costs else 0.0,
+        "best_cost_mean": statistics.mean(best_costs) if best_costs else 0.0,
+        "best_cost_median": statistics.median(best_costs) if best_costs else 0.0,
         "best_cost_stdev": statistics.stdev(best_costs) if len(best_costs) > 1 else 0.0,
-        "run_time_seconds_min": min(run_durations_seconds),
-        "run_time_seconds_max": max(run_durations_seconds),
-        "run_time_seconds_mean": statistics.mean(run_durations_seconds),
-        "run_time_seconds_median": statistics.median(run_durations_seconds),
+        "run_time_seconds_min": min(run_durations_seconds)
+        if run_durations_seconds
+        else 0.0,
+        "run_time_seconds_max": max(run_durations_seconds)
+        if run_durations_seconds
+        else 0.0,
+        "run_time_seconds_mean": (
+            statistics.mean(run_durations_seconds) if run_durations_seconds else 0.0
+        ),
+        "run_time_seconds_median": (
+            statistics.median(run_durations_seconds) if run_durations_seconds else 0.0
+        ),
         "run_time_seconds_stdev": (
             statistics.stdev(run_durations_seconds)
             if len(run_durations_seconds) > 1
             else 0.0
         ),
-        "best_run_distance_from_published_best_pct": max(
-            0.0, ((min(best_costs) / published_best_cost) - 1.0) * 100.0
-        ),
-        "median_run_distance_from_published_best_pct": max(
-            0.0, ((statistics.median(best_costs) / published_best_cost) - 1.0) * 100.0
-        ),
+        "best_run_distance_from_published_best_pct": best_run_distance,
+        "median_run_distance_from_published_best_pct": median_run_distance,
     }
 
+    run_summaries.sort(key=lambda row: row["run_id"])
     _write_csv(results_dir / "run_summaries.csv", run_summaries)
     (results_dir / "aggregate_summary.json").write_text(
         json.dumps(aggregate, indent=2), encoding="utf-8"

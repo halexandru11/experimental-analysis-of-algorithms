@@ -21,6 +21,16 @@ class DifferentialEvolutionResult:
     history: list[dict[str, float]]
 
 
+@dataclass(slots=True)
+class DifferentialEvolutionResumeState:
+    population: np.ndarray
+    fitness: np.ndarray
+    best_vector: np.ndarray
+    best_fitness: float
+    completed_generations: int
+    rng_state: dict
+
+
 def run_differential_evolution(
     objective: Callable[[np.ndarray], float],
     bounds: np.ndarray,
@@ -28,29 +38,48 @@ def run_differential_evolution(
     config: DifferentialEvolutionConfig,
     checkpoint_interval: int,
     checkpoint_callback: Callable[
-        [int, list[dict[str, float]], list[np.ndarray], float], None
+        [
+            int,
+            list[dict[str, float]],
+            list[np.ndarray],
+            float,
+            DifferentialEvolutionResumeState,
+        ],
+        None,
     ],
     progress_callback: Callable[[int, float], None] | None = None,
+    resume_state: DifferentialEvolutionResumeState | None = None,
 ) -> DifferentialEvolutionResult:
     dimension = bounds.shape[0]
     low = bounds[:, 0]
     high = bounds[:, 1]
 
-    population = rng.uniform(
-        low=low, high=high, size=(config.population_size, dimension)
-    )
-    fitness = np.array(
-        [objective(individual) for individual in population], dtype=float
-    )
-
-    best_idx = int(np.argmin(fitness))
-    best_vector = population[best_idx].copy()
-    best_fitness = float(fitness[best_idx])
+    if resume_state is None:
+        population = rng.uniform(
+            low=low, high=high, size=(config.population_size, dimension)
+        )
+        fitness = np.array(
+            [objective(individual) for individual in population], dtype=float
+        )
+        best_idx = int(np.argmin(fitness))
+        best_vector = population[best_idx].copy()
+        best_fitness = float(fitness[best_idx])
+        completed_generations = 0
+    else:
+        population = resume_state.population.copy()
+        fitness = resume_state.fitness.copy()
+        best_vector = resume_state.best_vector.copy()
+        best_fitness = float(resume_state.best_fitness)
+        completed_generations = int(resume_state.completed_generations)
+        rng.bit_generator.state = resume_state.rng_state
 
     history: list[dict[str, float]] = []
     best_vectors: list[np.ndarray] = []
 
-    for generation in range(config.generations):
+    if progress_callback is not None and completed_generations > 0:
+        progress_callback(completed_generations, best_fitness)
+
+    for generation in range(completed_generations, config.generations):
         for i in range(config.population_size):
             choices = [idx for idx in range(config.population_size) if idx != i]
             r1, r2, r3 = rng.choice(choices, size=3, replace=False)
@@ -93,6 +122,14 @@ def run_differential_evolution(
                 list(history),
                 [v.copy() for v in best_vectors],
                 best_fitness,
+                DifferentialEvolutionResumeState(
+                    population=population.copy(),
+                    fitness=fitness.copy(),
+                    best_vector=best_vector.copy(),
+                    best_fitness=best_fitness,
+                    completed_generations=generation + 1,
+                    rng_state=rng.bit_generator.state,
+                ),
             )
             # clear in-memory history and best_vectors to free memory
             history.clear()
@@ -105,6 +142,14 @@ def run_differential_evolution(
             list(history),
             [v.copy() for v in best_vectors],
             best_fitness,
+            DifferentialEvolutionResumeState(
+                population=population.copy(),
+                fitness=fitness.copy(),
+                best_vector=best_vector.copy(),
+                best_fitness=best_fitness,
+                completed_generations=config.generations,
+                rng_state=rng.bit_generator.state,
+            ),
         )
     return DifferentialEvolutionResult(
         best_vectors=best_vectors, best_fitness=best_fitness, history=history
