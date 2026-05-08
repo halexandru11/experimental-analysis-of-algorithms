@@ -308,7 +308,7 @@ def _run_single_experiment_worker(
 
     # checkpointing setup: write partial results every N generations
     results_dir = Path(results_dir_path)
-    checkpoint_interval = 50
+    checkpoint_interval = 10
     last_saved_generation = -1
 
     def _checkpoint_callback(
@@ -577,12 +577,12 @@ def _build_progress_line(
 
 
 def main() -> None:
-    runs = 12
-    # instance_name = "TLN.inp"
+    runs = 1
+    instance_name = "TLN.inp"
     # instance_name = "BLA.inp"
     # instance_name = "GOY.inp"
     # instance_name = "HAN.inp"
-    instance_name = "BIN.inp"
+    # instance_name = "BIN.inp"
 
     mutation_factor = 0.5
     crossover_rate = 0.8
@@ -594,7 +594,7 @@ def main() -> None:
     # crossover_rate = 0.9
 
     config = DifferentialEvolutionConfig(
-        generations=10000,
+        generations=40,
         population_size=50,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
