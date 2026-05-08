@@ -23,7 +23,7 @@ from de_algorithm import DifferentialEvolutionConfig, run_differential_evolution
 from inp_parser import InpFileParser
 from plot_results import generate_plots
 
-OBJECTIVE_CACHE_CAPACITY = 1000
+OBJECTIVE_CACHE_CAPACITY = 300
 
 
 class LRUObjectiveCache:
@@ -337,16 +337,11 @@ def _run_single_experiment_worker(
                     writer.writeheader()
                 writer.writerows(new_entries)
 
-            # append best vectors lines (CSV, no header)
+            # The optimizer clears best_vectors after each checkpoint, so each
+            # snapshot already contains only the unsaved window for this run.
             best_vecs_path = results_dir / f"run_{run_id:02d}_best_vectors.csv"
-            existing_count = 0
-            if best_vecs_path.exists():
-                with best_vecs_path.open("r", encoding="utf-8") as fh:
-                    for _ in fh:
-                        existing_count += 1
-            start_idx = min(existing_count, len(best_vectors_snapshot))
             with best_vecs_path.open("a", encoding="utf-8") as fh:
-                for vec in best_vectors_snapshot[start_idx:]:
+                for vec in best_vectors_snapshot:
                     line = ",".join(str(float(value)) for value in vec)
                     fh.write(line + "\n")
 
@@ -582,24 +577,24 @@ def _build_progress_line(
 
 
 def main() -> None:
-    runs = 15
+    runs = 12
     # instance_name = "TLN.inp"
     # instance_name = "BLA.inp"
-    instance_name = "GOY.inp"
+    # instance_name = "GOY.inp"
     # instance_name = "HAN.inp"
-    # instance_name = "BIN.inp"
+    instance_name = "BIN.inp"
 
-    # mutation_factor = 0.5
-    # crossover_rate = 0.8
+    mutation_factor = 0.5
+    crossover_rate = 0.8
 
     # mutation_factor = 0.65
     # crossover_rate = 0.85
 
-    mutation_factor = 0.8
-    crossover_rate = 0.9
+    # mutation_factor = 0.8
+    # crossover_rate = 0.9
 
     config = DifferentialEvolutionConfig(
-        generations=300,
+        generations=10000,
         population_size=50,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
@@ -766,7 +761,8 @@ def main() -> None:
                 break
         _render_progress()
 
-    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    max_workers = 12
+    # max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
     # max_workers = min(runs, max(1, (os.cpu_count() or 1) // 2))
     progress_thread = (
         threading.Thread(target=_progress_renderer_worker, daemon=True)
@@ -859,20 +855,12 @@ def main() -> None:
                             writer.writeheader()
                         writer.writerows(new_entries)  # type: ignore[arg-type]
 
-                # Append missing best vectors lines (do not delete previous data)
+                # After checkpoint clears, result.best_vectors only contains the
+                # final unsaved remainder, so append that remainder directly.
                 best_vecs_path = results_dir / f"run_{run_id:02d}_best_vectors.csv"
-                existing_count = 0
-                if best_vecs_path.exists():
-                    try:
-                        with best_vecs_path.open("r", encoding="utf-8") as fh:
-                            for _ in fh:
-                                existing_count += 1
-                    except Exception:
-                        existing_count = 0
-                start_idx = min(existing_count, len(best_vectors))
-                if start_idx < len(best_vectors):
+                if best_vectors:
                     with best_vecs_path.open("a", encoding="utf-8") as fh:
-                        for vec in best_vectors[start_idx:]:
+                        for vec in best_vectors:
                             line = ",".join(str(float(value)) for value in vec)
                             fh.write(line + "\n")
     finally:
