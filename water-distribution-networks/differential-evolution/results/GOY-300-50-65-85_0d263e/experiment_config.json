@@ -1,0 +1,18 @@
+{
+  "instance": "GOY.inp",
+  "runs": 15,
+  "dimensions": 30,
+  "bounds_diameter_m": [
+    0.08,
+    0.35
+  ],
+  "objective_type": "minimize total pipe cost",
+  "cost_definition": "sum(unit_cost(d_i) * pipe_length_i)",
+  "published_best_cost": 177010359.0,
+  "de_config": {
+    "population_size": 50,
+    "generations": 300,
+    "mutation_factor": 0.65,
+    "crossover_rate": 0.85
+  }
+}

@@ -372,7 +372,7 @@ def generate_group_comparisons(
         # prepare concise labels parsed from folder names
         labels: dict[str, str] = {}
         for name, _, _ in collected:
-            parts = name.split("-")
+            parts = name.split("_")[0].split("-")
             if len(parts) >= 5:
                 try:
                     mut = int(parts[3])
