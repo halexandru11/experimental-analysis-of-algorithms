@@ -18,12 +18,16 @@ def load_best_vector(path: Path) -> np.ndarray:
     text = path.read_text(encoding="utf-8").strip()
     if not text:
         raise ValueError(f"Empty best vector file: {path}")
+    # return the last line, which is the final best vector
+    last_line = ""
     for line in text.splitlines():
         s = line.strip()
         if s:
-            parts = s.split(",")
-            return np.array([float(p) for p in parts], dtype=float)
-    raise ValueError("No data in best vector file")
+            last_line = s
+    if not last_line:
+         raise ValueError("No data in best vector file")
+    parts = last_line.split(",")
+    return np.array([float(p) for p in parts], dtype=float)
 
 
 def snap_to_allowed(candidate: np.ndarray, allowed: np.ndarray) -> np.ndarray:
@@ -88,10 +92,15 @@ def generate_for_results(results_dir: Path) -> None:
                     run_cost = cost
                     best_run_id = rid
 
-    files = sorted(results_dir.glob("run_*_best_vector*.csv"))
-    if not files:
-        raise SystemExit("No best vector files found")
-    best_vec_path = files[0]
+    best_vec_path = None
+    if best_run_id is not None:
+        best_vec_path = results_dir / f"run_{best_run_id:02d}_best_vectors.csv"
+
+    if best_vec_path is None or not best_vec_path.exists():
+        files = sorted(results_dir.glob("run_*_best_vector*.csv"))
+        if not files:
+            raise SystemExit("No best vector files found")
+        best_vec_path = files[0]
 
     vec = load_best_vector(best_vec_path)
     snapped = snap_to_allowed(vec, allowed)
