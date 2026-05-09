@@ -27,7 +27,7 @@ from de_algorithm import (
 from inp_parser import InpFileParser
 from plot_results import generate_plots
 
-OBJECTIVE_CACHE_CAPACITY = 300
+OBJECTIVE_CACHE_CAPACITY = 1024
 
 
 class LRUObjectiveCache:
@@ -775,24 +775,24 @@ def _build_progress_line(
 
 def main() -> None:
     cli_results_dir = _parse_results_dir_argument(sys.argv)
-    runs = 12
+    runs = 15
     # instance_name = "TLN.inp"
     # instance_name = "BLA.inp"
-    # instance_name = "GOY.inp"
+    instance_name = "GOY.inp"
     # instance_name = "HAN.inp"
-    instance_name = "BIN.inp"
+    # instance_name = "BIN.inp"
 
-    mutation_factor = 0.5
-    crossover_rate = 0.8
+    # mutation_factor = 0.5
+    # crossover_rate = 0.8
 
     # mutation_factor = 0.65
     # crossover_rate = 0.85
 
-    # mutation_factor = 0.8
-    # crossover_rate = 0.9
+    mutation_factor = 0.8
+    crossover_rate = 0.9
 
     config = DifferentialEvolutionConfig(
-        generations=10000,
+        generations=300,
         population_size=50,
         mutation_factor=mutation_factor,
         crossover_rate=crossover_rate,
@@ -1045,8 +1045,8 @@ def main() -> None:
                 break
         _render_progress()
 
-    max_workers = 12
-    # max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
+    # max_workers = 12
+    max_workers = min(runs, max(1, (os.cpu_count() or 1) - 1))
     # max_workers = min(runs, max(1, (os.cpu_count() or 1) // 2))
     progress_thread = (
         threading.Thread(target=_progress_renderer_worker, daemon=True)

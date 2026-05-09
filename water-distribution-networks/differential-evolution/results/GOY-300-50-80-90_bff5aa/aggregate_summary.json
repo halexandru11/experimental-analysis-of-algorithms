@@ -1,0 +1,23 @@
+{
+  "instance": "GOY.inp",
+  "experiment_config": {
+    "population_size": 50,
+    "generations": 300,
+    "mutation_factor": 0.8,
+    "crossover_rate": 0.9
+  },
+  "runs": 15,
+  "published_best_cost": 177010359.0,
+  "best_cost_min": 177104229.0,
+  "best_cost_max": 179487351.0,
+  "best_cost_mean": 177971648.73333332,
+  "best_cost_median": 177865827.0,
+  "best_cost_stdev": 592896.2714170241,
+  "run_time_seconds_min": 228.3933256829987,
+  "run_time_seconds_max": 300.24078686900066,
+  "run_time_seconds_mean": 255.93690497800006,
+  "run_time_seconds_median": 248.93294043499918,
+  "run_time_seconds_stdev": 20.83978741203216,
+  "best_run_distance_from_published_best_pct": 0.05303079465535099,
+  "median_run_distance_from_published_best_pct": 0.48328696966259965
+}
