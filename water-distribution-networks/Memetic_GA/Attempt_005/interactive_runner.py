@@ -96,7 +96,7 @@ class InteractiveRunManager:
         visualizer = HistoryVisualizer(
             self.persistence,
             output_dir=output_dir,
-            reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
+            reference_scores_path=output_dir / "published_reference_scores.json",
         )
         return visualizer.generate_all()
 
@@ -111,7 +111,7 @@ class InteractiveRunManager:
         visualizer = HistoryVisualizer(
             self.persistence,
             output_dir=output_dir,
-            reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
+            reference_scores_path=output_dir / "published_reference_scores.json",
         )
         return visualizer.plot_group_run_statistics(
             network_file=network_file,
@@ -125,7 +125,7 @@ class InteractiveRunManager:
         visualizer = HistoryVisualizer(
             self.persistence,
             output_dir=output_dir,
-            reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
+            reference_scores_path=output_dir / "published_reference_scores.json",
         )
         return visualizer.generate_all_existing_group_statistics(latest_only=latest_only, latest_limit=latest_limit)
 
@@ -134,7 +134,7 @@ class InteractiveRunManager:
         visualizer = HistoryVisualizer(
             self.persistence,
             output_dir=output_dir,
-            reference_scores_path=self.attempt4_results_dir / "published_reference_scores.json",
+            reference_scores_path=output_dir / "published_reference_scores.json",
         )
         return visualizer.plot_selected_runs_statistics(run_ids)
 

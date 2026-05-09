@@ -7,7 +7,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from persistence import RunPersistence
 
@@ -30,7 +29,9 @@ class HistoryVisualizer:
         self.persistence = persistence
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.reference_scores = self._load_reference_scores(reference_scores_path)
+        self.reference_scores = self._load_reference_scores(
+            reference_scores_path if reference_scores_path.exists() else self.output_dir / "published_reference_scores.json"
+        )
         self._live_best_scores = self._load_live_results_best_scores()
 
     @staticmethod
@@ -165,13 +166,37 @@ class HistoryVisualizer:
                 if not gens:
                     continue
                 x = [int(g["generation"]) for g in gens]
-                y_train = [float(g["best_training_fitness"]) for g in gens]
-                y_paper = [float(g["best_paper_score"]) for g in gens]
+                y_train = np.array([float(g["best_training_fitness"]) for g in gens], dtype=float)
+                y_paper = np.array([float(g["best_paper_score"]) for g in gens], dtype=float)
 
-                ax.plot(x, y_train, linestyle="--", linewidth=1.5, color=ALGO_COLOR[algo], alpha=0.65,
-                        label=f"{ALGO_LABEL[algo]} train")
-                ax.plot(x, y_paper, linestyle="-", linewidth=2.0, color=ALGO_COLOR[algo],
-                        label=f"{ALGO_LABEL[algo]} strict")
+                # Mask non-finite values so lines break instead of exploding the scale.
+                y_train[~np.isfinite(y_train)] = np.nan
+                y_paper[~np.isfinite(y_paper)] = np.nan
+
+                max_paper = np.nanmax(y_paper) if np.any(np.isfinite(y_paper)) else None
+                max_train = np.nanmax(y_train) if np.any(np.isfinite(y_train)) else None
+
+                if max_paper is not None:
+                    ax.plot(
+                        x,
+                        y_paper,
+                        linestyle="-",
+                        linewidth=2.0,
+                        color=ALGO_COLOR[algo],
+                        label=f"{ALGO_LABEL[algo]} strict",
+                    )
+
+                # Skip training curve if it dwarfs strict scores (keeps scale readable).
+                if max_train is not None and max_paper is not None and max_train <= max_paper * 1000:
+                    ax.plot(
+                        x,
+                        y_train,
+                        linestyle="--",
+                        linewidth=1.5,
+                        color=ALGO_COLOR[algo],
+                        alpha=0.65,
+                        label=f"{ALGO_LABEL[algo]} train",
+                    )
                 any_plotted = True
 
             ax.set_title(net)
@@ -365,14 +390,27 @@ class HistoryVisualizer:
         run_payloads: List[Dict] = []
         for r in selected:
             gens = self.persistence.load_generations(r.run_id)
-            y_raw = [
-                float(g["best_paper_score"])
-                for g in gens
-                if g.get("best_paper_score") is not None and np.isfinite(float(g["best_paper_score"]))
-            ]
-            if not y_raw:
+            if not gens:
                 continue
-            run_payloads.append({"run_id": r.run_id, "y": self._strict_best_so_far(y_raw)})
+
+            # Build a best-so-far series across all generations, carrying forward
+            # the last finite value when strict score becomes non-finite.
+            best = float("inf")
+            series: List[float] = []
+            seen_finite = False
+            for g in gens:
+                raw = g.get("best_paper_score")
+                if raw is not None and np.isfinite(float(raw)):
+                    val = float(raw)
+                    if val < best:
+                        best = val
+                    seen_finite = True
+                series.append(best if seen_finite else float("nan"))
+
+            if not seen_finite:
+                continue
+
+            run_payloads.append({"run_id": r.run_id, "y": series})
         return run_payloads
 
     def _best_run_for_group(self, network_file: str, algorithm: str) -> Optional[Dict]:
@@ -475,25 +513,6 @@ class HistoryVisualizer:
                 fontsize=8,
             )
 
-        # Zoomed inset for small-gap networks so TLN/Hanoi values are readable.
-        zoom_payloads = [p for p in payloads if p.get("network_file") != "BIN.inp"]
-        if zoom_payloads:
-            zoom_labels = [f"{p['network_file']}\n{ALGO_LABEL.get(p['algorithm'], p['algorithm'])}" for p in zoom_payloads]
-            zoom_x = np.arange(len(zoom_payloads))
-            zoom_vals = [p["gap_pct"] if p.get("gap_pct") is not None else np.nan for p in zoom_payloads]
-            zoom_colors = [ALGO_COLOR.get(p["algorithm"], "#4b5563") for p in zoom_payloads]
-
-            inset = inset_axes(ax_gap, width="52%", height="45%", loc="upper left")
-            inset.bar(zoom_x, zoom_vals, color=zoom_colors, alpha=0.9)
-            inset.set_xticks(zoom_x)
-            inset.set_xticklabels(zoom_labels, rotation=20, ha="right", fontsize=7)
-            inset.set_ylabel("Gap (%)", fontsize=7)
-            inset.grid(True, axis="y", alpha=0.3)
-            inset.set_ylim(0.0, max(5.0, np.nanmax(zoom_vals) * 1.5))
-            for zx, val in zip(zoom_x, zoom_vals):
-                if not np.isfinite(val):
-                    continue
-                inset.text(zx, val, f"{val:+.2f}%", ha="center", va="bottom", fontsize=7)
 
         # Right: final strict best score (benchmark currency).
         score_vals = [float(p["final_score"]) for p in payloads]
@@ -783,8 +802,8 @@ if __name__ == "__main__":
     db_path = base_dir / "run_history.sqlite"
     output_dir = base_dir / "results"
     
-    # published_reference_scores is in Attempt_004/results
-    reference_path = base_dir.parent / "Attempt_004" / "results" / "published_reference_scores.json"
+    # published_reference_scores is in Attempt_005/results
+    reference_path = output_dir / "published_reference_scores.json"
     
     print(f"Loading history from: {db_path}")
     persistence = RunPersistence(db_path)
