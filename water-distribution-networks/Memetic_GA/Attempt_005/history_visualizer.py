@@ -167,7 +167,20 @@ class HistoryVisualizer:
                     continue
                 x = [int(g["generation"]) for g in gens]
                 y_train = np.array([float(g["best_training_fitness"]) for g in gens], dtype=float)
-                y_paper = np.array([float(g["best_paper_score"]) for g in gens], dtype=float)
+
+                # Build strict best-so-far series with carry-forward for non-finite values.
+                best = float("inf")
+                seen_finite = False
+                y_paper = []
+                for g in gens:
+                    raw = g.get("best_paper_score")
+                    if raw is not None and np.isfinite(float(raw)):
+                        val = float(raw)
+                        if val < best:
+                            best = val
+                        seen_finite = True
+                    y_paper.append(best if seen_finite else float("nan"))
+                y_paper = np.array(y_paper, dtype=float)
 
                 # Mask non-finite values so lines break instead of exploding the scale.
                 y_train[~np.isfinite(y_train)] = np.nan
