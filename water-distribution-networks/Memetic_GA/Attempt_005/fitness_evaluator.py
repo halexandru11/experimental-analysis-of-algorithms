@@ -11,6 +11,10 @@ Design choices:
 """
 
 import numpy as np
+import os
+import tempfile
+import uuid
+import wntr
 from typing import Dict, List, Optional, Tuple
 from network_parser import WaterNetwork, Pipe
 
@@ -48,15 +52,28 @@ class FitnessEvaluator:
         self,
         network: WaterNetwork,
         diameter_options: Optional[List[float]] = None,
-        unit_cost_lookup: Optional[Dict[float, float]] = None
+        unit_cost_lookup: Optional[Dict[float, float]] = None,
+        network_file: Optional[str] = None,
+        inp_filepath: Optional[str] = None
     ):
         self.network = network
         self.num_pipes = network.get_pipe_count()
         self.diameter_values = sorted(diameter_options.copy()) if diameter_options else AVAILABLE_DIAMETERS.copy()
         self.diameter_options = len(self.diameter_values)
         self.unit_cost_lookup = unit_cost_lookup
-        self.min_pressure = 20.0  # Minimum pressure at junctions (meters)
+        self.network_file = network_file
+        self.inp_filepath = inp_filepath
+        self.min_pressure = self._get_min_head_requirement(network_file) if network_file else 20.0
         self.reference_cost = self._calculate_reference_cost()
+
+    def _get_min_head_requirement(self, network_file: str) -> float:
+        """Benchmark minimum pressure head requirement in meters."""
+        defaults = {
+            'TLN.inp': 30.0,
+            'hanoi.inp': 30.0,
+            'BIN.inp': 20.0
+        }
+        return defaults.get(network_file, 20.0)
         
     def _calculate_reference_cost(self) -> float:
         """Calculate cost with all pipes at maximum diameter (for normalization)."""
@@ -101,18 +118,51 @@ class FitnessEvaluator:
     
     def _simplified_hydraulic_check(self, diameters: List[float]) -> float:
         """
-        FAST simplified hydraulic feasibility check (optimized for speed).
-        
-        Uses minimal computation for development speed:
-        - Quick undersizing check
-        - Simple diameter penalty
+        STRICT hydraulic feasibility check using EPANET (via WNTR).
         
         Args:
             diameters: Pipe diameter configuration
             
         Returns:
-            Penalty value (0 if all valid, else penalty).
+            Penalty value (0 if all valid, else high penalty).
         """
+        if not self.inp_filepath or not self.network_file:
+            # Fallback to crude proxy if paths are missing
+            return self._crude_hydraulic_proxy(diameters)
+
+        try:
+            wn = wntr.network.WaterNetworkModel(self.inp_filepath)
+            for i, pipe in enumerate(self.network.pipes_list):
+                if pipe.id in wn.pipe_name_list:
+                    wn.get_link(pipe.id).diameter = float(diameters[i])
+
+            sim = wntr.sim.EpanetSimulator(wn)
+            run_prefix = os.path.join(tempfile.gettempdir(), f"ga_fit_{uuid.uuid4().hex}")
+            results = sim.run_sim(file_prefix=run_prefix, convergence_error=True)
+
+            pressures = results.node['pressure']
+            # Intersection of demand junctions in our network and result columns
+            junctions = [id for id in self.network.junctions.keys() if id in pressures.columns]
+            if not junctions:
+                return self.reference_cost * 100.0
+
+            # Calculate total pressure violation across all reported timesteps
+            pressure_matrix = pressures.loc[:, junctions].to_numpy()
+            violation_matrix = np.maximum(0.0, self.min_pressure - pressure_matrix)
+            total_violation = np.sum(violation_matrix)
+
+            if total_violation <= 1e-7:
+                 return 0.0
+            
+            # High penalty for infeasibility, scaled by violation magnitude
+            return float(self.reference_cost * (1.0 + total_violation))
+
+        except Exception:
+            # Failure in simulation implies extreme infeasibility or error
+            return self.reference_cost * 200.0
+
+    def _crude_hydraulic_proxy(self, diameters: List[float]) -> float:
+        """FAST fallback for simplified hydraulic checking."""
         min_valid_diameter = self.diameter_values[0]
 
         # Hard fail for any value outside configured catalog range.

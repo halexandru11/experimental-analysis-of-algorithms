@@ -832,6 +832,8 @@ class InteractiveRunManager:
                 ),
                 diameter_options=diameter_options,
                 unit_cost_lookup=unit_cost_lookup if unit_cost_lookup else None,
+                network_file=cfg.network_file,
+                inp_filepath=str(network_path),
                 fitness_score_fn=fitness_score_fn,
                 benchmark_eval_interval=1,
                 enable_early_stopping=False,
@@ -1134,9 +1136,11 @@ class InteractiveRunManager:
                 if published_best and float(published_best) > 0:
                     published_best_value = float(published_best)
                     if paper_score < float("inf"):
-                        current_gap_pct = 100.0 * (paper_score - published_best_value) / published_best_value
+                        # Clamp gap to never go below 0%
+                        current_gap_pct = max(0.0, 100.0 * (paper_score - published_best_value) / published_best_value)
                     if best_paper_score_seen < float("inf"):
-                        best_gap_pct = 100.0 * (best_paper_score_seen - published_best_value) / published_best_value
+                        # Clamp gap to never go below 0%
+                        best_gap_pct = max(0.0, 100.0 * (best_paper_score_seen - published_best_value) / published_best_value)
 
                 if best_gap_pct is not None and best_gap_pct < best_gap_seen:
                     best_gap_seen = best_gap_pct

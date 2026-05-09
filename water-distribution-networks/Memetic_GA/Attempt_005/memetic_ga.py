@@ -101,6 +101,8 @@ class MemeticGA:
         local_search_intensity: float = 1.0,
         diameter_options: Optional[List[float]] = None,
         unit_cost_lookup: Optional[Dict[float, float]] = None,
+        network_file: Optional[str] = None,
+        inp_filepath: Optional[str] = None,
         fitness_score_fn: Optional[FitnessScoreFn] = None,
         benchmark_score_fn: Optional[BenchmarkScoreFn] = None,
         benchmark_eval_interval: int = 5,
@@ -135,7 +137,9 @@ class MemeticGA:
         self.fitness_evaluator = FitnessEvaluator(
             network,
             diameter_options=diameter_options,
-            unit_cost_lookup=unit_cost_lookup
+            unit_cost_lookup=unit_cost_lookup,
+            network_file=network_file,
+            inp_filepath=inp_filepath
         )
         self.population_size = population_size
         self.max_generations = max_generations

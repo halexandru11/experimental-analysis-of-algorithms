@@ -1,3 +1,4 @@
+import csv
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -6,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from persistence import RunPersistence
 
@@ -20,6 +22,7 @@ ALGO_COLOR = {
     "memetic": "#2E86AB",
     "standard": "#C73E1D",
 }
+STANDARD_GA_NETWORKS = {"TLN.inp", "hanoi.inp"}
 
 
 class HistoryVisualizer:
@@ -28,6 +31,7 @@ class HistoryVisualizer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.reference_scores = self._load_reference_scores(reference_scores_path)
+        self._live_best_scores = self._load_live_results_best_scores()
 
     @staticmethod
     def _load_reference_scores(path: Path) -> Dict[str, Dict]:
@@ -42,10 +46,47 @@ class HistoryVisualizer:
         for net in NETWORK_ORDER:
             snapshot[net] = {
                 "memetic": self.persistence.latest_completed_run_for_network_algorithm(net, "memetic"),
-                "standard": self.persistence.latest_completed_run_for_network_algorithm(net, "standard"),
+                "standard": self.persistence.latest_completed_run_for_network_algorithm(net, "standard")
+                if net in STANDARD_GA_NETWORKS
+                else None,
                 "latest_any": self.persistence.latest_completed_run_for_network(net),
             }
         return snapshot
+
+    def _load_live_results_best_scores(self) -> Dict[tuple[str, str], float]:
+        live_path = self.output_dir.parent / "live_results.csv"
+        if not live_path.exists():
+            return {}
+
+        best_scores: Dict[tuple[str, str], float] = {}
+        with live_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                network = str(row.get("network_file", "")).strip()
+                algorithm = str(row.get("algorithm", "")).strip()
+                if not network or not algorithm:
+                    continue
+                if not self._algorithm_allowed(network, algorithm):
+                    continue
+                try:
+                    score = float(row.get("best_paper_score"))
+                except (TypeError, ValueError):
+                    continue
+                if not np.isfinite(score):
+                    continue
+                key = (network, algorithm)
+                current = best_scores.get(key)
+                if current is None or score < current:
+                    best_scores[key] = score
+        return best_scores
+
+    def _best_score_for_network_algo(
+        self, network_file: str, algorithm: str, gens: List[Dict]
+    ) -> Optional[float]:
+        key = (network_file, algorithm)
+        if key in self._live_best_scores:
+            return float(self._live_best_scores[key])
+        return self._best_finite_paper_score(gens)
 
     def _load_generation_series(self, run: Optional[Dict]) -> List[Dict]:
         if not run:
@@ -70,6 +111,12 @@ class HistoryVisualizer:
             series.append(best)
         return series
 
+    @staticmethod
+    def _algorithm_allowed(network_file: str, algorithm: str) -> bool:
+        if algorithm == "standard" and network_file not in STANDARD_GA_NETWORKS:
+            return False
+        return True
+
     def _last_finite_gap(self, network_file: str, gens: List[Dict]) -> Optional[float]:
         ref = self.reference_scores.get(network_file, {}).get("published_best_universal_score")
         if ref is None:
@@ -87,6 +134,20 @@ class HistoryVisualizer:
 
         return float(100.0 * (best_feasible - ref_value) / ref_value)
 
+    def _gap_to_published_best(self, network_file: str, best_score: Optional[float]) -> Optional[float]:
+        if best_score is None or not np.isfinite(float(best_score)):
+            return None
+        ref = self.reference_scores.get(network_file, {}).get("published_best_universal_score")
+        if ref is None:
+            return None
+        try:
+            ref_value = float(ref)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(ref_value) or ref_value <= 0.0:
+            return None
+        return float(100.0 * (float(best_score) - ref_value) / ref_value)
+
     def plot_convergence(self, snapshot: Dict[str, Dict[str, Optional[Dict]]]) -> Optional[Path]:
         fig, axes = plt.subplots(1, len(NETWORK_ORDER), figsize=(18, 5))
         if len(NETWORK_ORDER) == 1:
@@ -97,6 +158,8 @@ class HistoryVisualizer:
         for i, net in enumerate(NETWORK_ORDER):
             ax = axes[i]
             for algo in ALGO_ORDER:
+                if not self._algorithm_allowed(net, algo):
+                    continue
                 run = snapshot[net][algo]
                 gens = self._load_generation_series(run)
                 if not gens:
@@ -138,13 +201,15 @@ class HistoryVisualizer:
 
         for net in NETWORK_ORDER:
             mg = self._load_generation_series(snapshot[net]["memetic"])
-            sg = self._load_generation_series(snapshot[net]["standard"])
+            sg = self._load_generation_series(snapshot[net]["standard"]) if self._algorithm_allowed(net, "standard") else []
             if not mg and not sg:
                 continue
 
             labels.append(net)
-            memetic_scores.append(self._best_finite_paper_score(mg))
-            standard_scores.append(self._best_finite_paper_score(sg))
+            memetic_scores.append(self._best_score_for_network_algo(net, "memetic", mg) if mg else None)
+            standard_scores.append(
+                self._best_score_for_network_algo(net, "standard", sg) if sg else None
+            )
 
         if not labels:
             return None
@@ -181,12 +246,14 @@ class HistoryVisualizer:
 
         for net in NETWORK_ORDER:
             mg = self._load_generation_series(snapshot[net]["memetic"])
-            sg = self._load_generation_series(snapshot[net]["standard"])
+            sg = self._load_generation_series(snapshot[net]["standard"]) if self._algorithm_allowed(net, "standard") else []
             if not mg and not sg:
                 continue
             labels.append(net)
-            memetic_gaps.append(self._last_finite_gap(net, mg))
-            standard_gaps.append(self._last_finite_gap(net, sg))
+            mg_best = self._best_score_for_network_algo(net, "memetic", mg) if mg else None
+            sg_best = self._best_score_for_network_algo(net, "standard", sg) if sg else None
+            memetic_gaps.append(self._gap_to_published_best(net, mg_best))
+            standard_gaps.append(self._gap_to_published_best(net, sg_best))
 
         if not labels:
             return None
@@ -231,6 +298,8 @@ class HistoryVisualizer:
         for i, net in enumerate(NETWORK_ORDER):
             ax = axes[i]
             for algo in ALGO_ORDER:
+                if not self._algorithm_allowed(net, algo):
+                    continue
                 run = snapshot[net][algo]
                 gens = self._load_generation_series(run)
                 if not gens:
@@ -283,6 +352,8 @@ class HistoryVisualizer:
         return outputs
 
     def _collect_group_runs(self, network_file: str, algorithm: str, latest_only: bool, latest_limit: int) -> List[Dict]:
+        if not self._algorithm_allowed(network_file, algorithm):
+            return []
         rows = self.persistence.list_runs(limit=5000)
         selected = [
             r for r in rows
@@ -306,13 +377,17 @@ class HistoryVisualizer:
 
     def _best_run_for_group(self, network_file: str, algorithm: str) -> Optional[Dict]:
         """Return best run payload (lowest strict best score) for network+algorithm."""
+        if not self._algorithm_allowed(network_file, algorithm):
+            return None
+        live_key = (network_file, algorithm)
+        live_score = self._live_best_scores.get(live_key)
         rows = self.persistence.list_runs(limit=5000)
         selected = [
             r for r in rows
             if r.network_file == network_file and r.algorithm == algorithm and r.status in ("completed", "stopped", "running")
         ]
         best_payload: Optional[Dict] = None
-        best_score = float("inf")
+        best_score = float(live_score) if live_score is not None else float("inf")
 
         for r in selected:
             gens = self.persistence.load_generations(r.run_id)
@@ -338,6 +413,14 @@ class HistoryVisualizer:
                     "final_score": final_score,
                     "gens": gens,
                 }
+        if live_score is not None and best_payload is None:
+            best_payload = {
+                "run_id": "live_results",
+                "network_file": network_file,
+                "algorithm": algorithm,
+                "final_score": float(live_score),
+                "gens": [],
+            }
 
         return best_payload
 
@@ -350,10 +433,12 @@ class HistoryVisualizer:
         payloads: List[Dict] = []
         for net in NETWORK_ORDER:
             for algo in ALGO_ORDER:
+                if not self._algorithm_allowed(net, algo):
+                    continue
                 best = self._best_run_for_group(net, algo)
                 if best is None:
                     continue
-                gap = self._last_finite_gap(net, best["gens"])
+                gap = self._gap_to_published_best(net, best.get("final_score"))
                 payloads.append({
                     **best,
                     "gap_pct": gap,
@@ -390,6 +475,26 @@ class HistoryVisualizer:
                 fontsize=8,
             )
 
+        # Zoomed inset for small-gap networks so TLN/Hanoi values are readable.
+        zoom_payloads = [p for p in payloads if p.get("network_file") != "BIN.inp"]
+        if zoom_payloads:
+            zoom_labels = [f"{p['network_file']}\n{ALGO_LABEL.get(p['algorithm'], p['algorithm'])}" for p in zoom_payloads]
+            zoom_x = np.arange(len(zoom_payloads))
+            zoom_vals = [p["gap_pct"] if p.get("gap_pct") is not None else np.nan for p in zoom_payloads]
+            zoom_colors = [ALGO_COLOR.get(p["algorithm"], "#4b5563") for p in zoom_payloads]
+
+            inset = inset_axes(ax_gap, width="52%", height="45%", loc="upper left")
+            inset.bar(zoom_x, zoom_vals, color=zoom_colors, alpha=0.9)
+            inset.set_xticks(zoom_x)
+            inset.set_xticklabels(zoom_labels, rotation=20, ha="right", fontsize=7)
+            inset.set_ylabel("Gap (%)", fontsize=7)
+            inset.grid(True, axis="y", alpha=0.3)
+            inset.set_ylim(0.0, max(5.0, np.nanmax(zoom_vals) * 1.5))
+            for zx, val in zip(zoom_x, zoom_vals):
+                if not np.isfinite(val):
+                    continue
+                inset.text(zx, val, f"{val:+.2f}%", ha="center", va="bottom", fontsize=7)
+
         # Right: final strict best score (benchmark currency).
         score_vals = [float(p["final_score"]) for p in payloads]
         score_colors = [ALGO_COLOR.get(p["algorithm"], "#4b5563") for p in payloads]
@@ -423,6 +528,8 @@ class HistoryVisualizer:
         rows = self.persistence.list_runs(limit=5000)
         available = []
         for net in NETWORK_ORDER:
+            if not self._algorithm_allowed(net, algorithm):
+                continue
             if any(r.network_file == net and r.algorithm == algorithm and r.status in ("completed", "stopped", "running") for r in rows):
                 available.append(net)
         return available
@@ -662,8 +769,34 @@ class HistoryVisualizer:
 
         fig.suptitle(f"Selected Run Statistics (n={len(payloads)})", fontsize=12)
         fig.tight_layout()
-
         out = self.output_dir / f"12_stats_selected_runs_{len(payloads)}.png"
         fig.savefig(out, dpi=300, bbox_inches="tight")
         plt.close(fig)
         return [out]
+
+
+if __name__ == "__main__":
+    from persistence import RunPersistence
+    
+    # Setup paths relative to Attempt_005 folder
+    base_dir = Path(__file__).resolve().parent
+    db_path = base_dir / "run_history.sqlite"
+    output_dir = base_dir / "results"
+    
+    # published_reference_scores is in Attempt_004/results
+    reference_path = base_dir.parent / "Attempt_004" / "results" / "published_reference_scores.json"
+    
+    print(f"Loading history from: {db_path}")
+    persistence = RunPersistence(db_path)
+    visualizer = HistoryVisualizer(persistence, output_dir, reference_path)
+    
+    print("Generating all visualizations...")
+    outputs = visualizer.generate_all()
+    
+    # Also generate the group statistics (all runs)
+    group_stats = visualizer.generate_all_existing_group_statistics(latest_only=False)
+    outputs.extend(group_stats)
+    
+    print(f"Successfully generated {len(outputs)} visualizations in {output_dir}:")
+    for out in outputs:
+        print(f" - {out.name}")

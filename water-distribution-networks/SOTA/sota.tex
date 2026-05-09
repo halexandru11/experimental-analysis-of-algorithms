@@ -619,7 +619,7 @@ How to explain in presentation:
 	\caption{Best-of-best summary across all runs (gap to published best and final strict score).}
 \end{figure}
 
-\subsection{Observed Results (Concrete Numbers)}
+\subsection{Observed Results}
 
 To complement the convergence plots, Table~\ref{tab:attempt005-best-vs-sota} reports concrete best values obtained from the live run history.
 
@@ -633,10 +633,9 @@ To complement the convergence plots, Table~\ref{tab:attempt005-best-vs-sota} rep
 		\hline
 		TLN.inp   & Memetic GA  & 419000.0   & 419000.0       & 0.00     \\
 		TLN.inp   & Standard GA & 420000.0   & 419000.0       & 0.24     \\
-		hanoi.inp & Memetic GA  & 6281488.3  & 6081000.0      & 3.30     \\
-		hanoi.inp & Standard GA & 6430614.6  & 6081000.0      & 5.75     \\
-		BIN.inp   & Memetic GA  & 3933733.4  & 1956000.0      & 97.04    \\
-		BIN.inp   & Standard GA & 4427058.7  & 1956000.0      & 122.41   \\
+		hanoi.inp & Memetic GA  & 6194745.2  & 6081000.0      & 1.87     \\
+		hanoi.inp & Standard GA & 6259486.7  & 6081000.0      & 2.94     \\
+		BIN.inp   & Memetic GA  & 3933733.4  & 1956000.0      & 101.11   \\
 		\hline
 	\end{tabular}
 \end{table}
@@ -644,8 +643,9 @@ To complement the convergence plots, Table~\ref{tab:attempt005-best-vs-sota} rep
 Observations from Table~\ref{tab:attempt005-best-vs-sota}:
 \begin{itemize}
 	\item On TLN, Memetic GA reaches the published best value exactly (0.00\% gap).
-	\item On Hanoi, Memetic GA improves noticeably over Standard GA (3.30\% vs 5.75\% gap) and is nearly competitive with the literature reference.
-	\item On BIN (Balerma), both variants remain significantly above the published reference, but Memetic GA outperforms Standard GA (97.04\% vs 122.41\% gap), suggesting the need for alternative strategies on very large networks.
+	\item On TLN, Standard GA trails Memetic GA (0.24\% vs 0.00\% gap).
+	\item On Hanoi, Memetic GA leads Standard GA (1.87\% vs 2.94\% gap).
+	\item On BIN (Balerma), the variant remains significantly above the published reference (101.11\% gap), suggesting the need for alternative strategies on very large networks.
 \end{itemize}
 
 To show stability (not only single best runs), Table~\ref{tab:attempt005-run-distribution} summarizes the distribution of strict scores over all finite recorded runs per network/algorithm pair.
@@ -659,11 +659,10 @@ To show stability (not only single best runs), Table~\ref{tab:attempt005-run-dis
 		Network   & Algorithm   & Runs & Mean score & Min score & Max score \\
 		\hline
 		TLN.inp   & Memetic GA  & 20   & 424150.0   & 419000.0  & 448000.0  \\
-		TLN.inp   & Standard GA & 1    & 420000.0   & 420000.0  & 420000.0  \\
-		hanoi.inp & Memetic GA  & 17   & 6778049.4  & 6281488.3 & 7581995.4 \\
-		hanoi.inp & Standard GA & 1    & 6430614.6  & 6430614.6 & 6430614.6 \\
+		TLN.inp   & Standard GA & 17   & 465941.2   & 420000.0  & 555000.0  \\
+		hanoi.inp & Memetic GA  & 17   & 6366077.2  & 6194745.2 & 6587255.5 \\
+		hanoi.inp & Standard GA & 18   & 6409857.1  & 6259486.7 & 6561875.4 \\
 		BIN.inp   & Memetic GA  & 14   & 4234735.2  & 3933733.4 & 4717918.7 \\
-		BIN.inp   & Standard GA & 1    & 4427058.7  & 4427058.7 & 4427058.7 \\
 		\hline
 	\end{tabular}
 \end{table}
