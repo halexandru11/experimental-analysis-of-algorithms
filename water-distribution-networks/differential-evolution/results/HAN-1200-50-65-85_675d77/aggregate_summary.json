@@ -1,0 +1,23 @@
+{
+  "instance": "HAN.inp",
+  "experiment_config": {
+    "population_size": 50,
+    "generations": 1200,
+    "mutation_factor": 0.65,
+    "crossover_rate": 0.85
+  },
+  "runs": 12,
+  "published_best_cost": 6081000.0,
+  "best_cost_min": 6081067.619999999,
+  "best_cost_max": 6319437.719999999,
+  "best_cost_mean": 6194818.036666666,
+  "best_cost_median": 6188005.26,
+  "best_cost_stdev": 106722.17605982372,
+  "run_time_seconds_min": 861.2781483260005,
+  "run_time_seconds_max": 988.8130911970002,
+  "run_time_seconds_mean": 931.1190009219999,
+  "run_time_seconds_median": 942.4582729515005,
+  "run_time_seconds_stdev": 40.049093299612935,
+  "best_run_distance_from_published_best_pct": 0.001111988159818722,
+  "median_run_distance_from_published_best_pct": 1.7596655155402097
+}
